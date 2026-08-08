@@ -13,10 +13,10 @@ import (
 	"os"
 	"strings"
 
+	"github.com/HZ-PRE/sing-box/adapter"
+	"github.com/HZ-PRE/sing-box/option"
 	cftls "github.com/sagernet/cloudflare-tls"
-	"github.com/sagernet/sing-box/adapter"
-	"github.com/sagernet/sing-box/option"
-	"github.com/sagernet/sing-dns"
+	dns "github.com/sagernet/sing-dns"
 	E "github.com/sagernet/sing/common/exceptions"
 	"github.com/sagernet/sing/common/ntp"
 	"github.com/sagernet/sing/service"

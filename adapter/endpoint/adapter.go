@@ -1,6 +1,6 @@
 package endpoint
 
-import "github.com/sagernet/sing-box/option"
+import "github.com/HZ-PRE/sing-box/option"
 
 type Adapter struct {
 	endpointType string

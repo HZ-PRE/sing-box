@@ -3,8 +3,8 @@ package adapter
 import (
 	"time"
 
-	C "github.com/sagernet/sing-box/constant"
-	"github.com/sagernet/sing-tun"
+	C "github.com/HZ-PRE/sing-box/constant"
+	tun "github.com/sagernet/sing-tun"
 	"github.com/sagernet/sing/common/control"
 )
 

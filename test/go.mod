@@ -4,9 +4,9 @@ go 1.23
 
 toolchain go1.23.2
 
-require github.com/sagernet/sing-box v0.0.0
+require github.com/HZ-PRE/sing-box v0.0.0
 
-replace github.com/sagernet/sing-box => ../
+replace github.com/HZ-PRE/sing-box => ../
 
 require (
 	github.com/docker/docker v27.3.1+incompatible

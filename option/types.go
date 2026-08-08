@@ -3,8 +3,8 @@ package option
 import (
 	"strings"
 
-	C "github.com/sagernet/sing-box/constant"
-	"github.com/sagernet/sing-dns"
+	C "github.com/HZ-PRE/sing-box/constant"
+	dns "github.com/sagernet/sing-dns"
 	E "github.com/sagernet/sing/common/exceptions"
 	F "github.com/sagernet/sing/common/format"
 	"github.com/sagernet/sing/common/json"

@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/HZ-PRE/sing-box/cmd/internal/build_shared"
+	"github.com/HZ-PRE/sing-box/log"
 	_ "github.com/sagernet/gomobile"
-	"github.com/sagernet/sing-box/cmd/internal/build_shared"
-	"github.com/sagernet/sing-box/log"
 	E "github.com/sagernet/sing/common/exceptions"
 	"github.com/sagernet/sing/common/rw"
 	"github.com/sagernet/sing/common/shell"
@@ -55,8 +55,8 @@ func init() {
 	if err != nil {
 		currentTag = "unknown"
 	}
-	sharedFlags = append(sharedFlags, "-ldflags", "-X github.com/sagernet/sing-box/constant.Version="+currentTag+" -s -w -buildid=")
-	debugFlags = append(debugFlags, "-ldflags", "-X github.com/sagernet/sing-box/constant.Version="+currentTag)
+	sharedFlags = append(sharedFlags, "-ldflags", "-X github.com/HZ-PRE/sing-box/constant.Version="+currentTag+" -s -w -buildid=")
+	debugFlags = append(debugFlags, "-ldflags", "-X github.com/HZ-PRE/sing-box/constant.Version="+currentTag)
 
 	sharedTags = append(sharedTags, "with_gvisor", "with_quic", "with_wireguard", "with_ech", "with_utls", "with_clash_api")
 	iosTags = append(iosTags, "with_dhcp", "with_low_memory", "with_conntrack")

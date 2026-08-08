@@ -4,8 +4,8 @@ import (
 	"context"
 	"sync"
 
-	"github.com/sagernet/sing-box/adapter"
-	"github.com/sagernet/sing-box/log"
+	"github.com/HZ-PRE/sing-box/adapter"
+	"github.com/HZ-PRE/sing-box/log"
 	"github.com/sagernet/sing/common"
 	E "github.com/sagernet/sing/common/exceptions"
 )

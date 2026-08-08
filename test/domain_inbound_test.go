@@ -4,9 +4,9 @@ import (
 	"net/netip"
 	"testing"
 
-	C "github.com/sagernet/sing-box/constant"
-	"github.com/sagernet/sing-box/option"
-	"github.com/sagernet/sing-dns"
+	C "github.com/HZ-PRE/sing-box/constant"
+	"github.com/HZ-PRE/sing-box/option"
+	dns "github.com/sagernet/sing-dns"
 	"github.com/sagernet/sing/common"
 	"github.com/sagernet/sing/common/json/badoption"
 

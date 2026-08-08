@@ -9,8 +9,8 @@ import (
 	"runtime"
 	"sync"
 
-	"github.com/sagernet/sing-box/adapter"
-	"github.com/sagernet/sing-tun"
+	"github.com/HZ-PRE/sing-box/adapter"
+	tun "github.com/sagernet/sing-tun"
 	"github.com/sagernet/sing/common"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"

@@ -5,16 +5,16 @@ import (
 	"net"
 	"time"
 
-	"github.com/sagernet/sing-box/adapter"
-	"github.com/sagernet/sing-box/adapter/inbound"
-	"github.com/sagernet/sing-box/common/listener"
-	C "github.com/sagernet/sing-box/constant"
-	"github.com/sagernet/sing-box/log"
-	"github.com/sagernet/sing-box/option"
+	"github.com/HZ-PRE/sing-box/adapter"
+	"github.com/HZ-PRE/sing-box/adapter/inbound"
+	"github.com/HZ-PRE/sing-box/common/listener"
+	C "github.com/HZ-PRE/sing-box/constant"
+	"github.com/HZ-PRE/sing-box/log"
+	"github.com/HZ-PRE/sing-box/option"
 	"github.com/sagernet/sing/common/buf"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
-	"github.com/sagernet/sing/common/udpnat2"
+	udpnat "github.com/sagernet/sing/common/udpnat2"
 )
 
 func RegisterInbound(registry *inbound.Registry) {

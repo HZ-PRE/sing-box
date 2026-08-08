@@ -6,16 +6,16 @@ import (
 	"net"
 	"time"
 
-	"github.com/sagernet/sing-box/adapter"
-	C "github.com/sagernet/sing-box/constant"
-	dnsOutbound "github.com/sagernet/sing-box/protocol/dns"
-	"github.com/sagernet/sing-dns"
-	"github.com/sagernet/sing-tun"
+	"github.com/HZ-PRE/sing-box/adapter"
+	C "github.com/HZ-PRE/sing-box/constant"
+	dnsOutbound "github.com/HZ-PRE/sing-box/protocol/dns"
+	dns "github.com/sagernet/sing-dns"
+	tun "github.com/sagernet/sing-tun"
 	"github.com/sagernet/sing/common/buf"
 	E "github.com/sagernet/sing/common/exceptions"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
-	"github.com/sagernet/sing/common/udpnat2"
+	udpnat "github.com/sagernet/sing/common/udpnat2"
 
 	mDNS "github.com/miekg/dns"
 )

@@ -3,7 +3,7 @@ package rule
 import (
 	"net/netip"
 
-	"github.com/sagernet/sing-box/adapter"
+	"github.com/HZ-PRE/sing-box/adapter"
 	N "github.com/sagernet/sing/common/network"
 )
 

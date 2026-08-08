@@ -6,8 +6,8 @@ import (
 	"net/netip"
 	"time"
 
-	C "github.com/sagernet/sing-box/constant"
-	"github.com/sagernet/sing-dns"
+	C "github.com/HZ-PRE/sing-box/constant"
+	dns "github.com/sagernet/sing-dns"
 	E "github.com/sagernet/sing/common/exceptions"
 	"github.com/sagernet/sing/common/json"
 	"github.com/sagernet/sing/common/json/badjson"
