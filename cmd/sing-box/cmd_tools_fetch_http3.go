@@ -7,7 +7,7 @@ import (
 	"crypto/tls"
 	"net/http"
 
-	box "github.com/HZ-PRE/sing-box"
+	box "github.com/sagernet/sing-box"
 	"github.com/sagernet/quic-go"
 	"github.com/sagernet/quic-go/http3"
 	"github.com/sagernet/sing/common/bufio"

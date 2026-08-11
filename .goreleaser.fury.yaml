@@ -6,7 +6,7 @@ builds:
       - -v
       - -trimpath
     ldflags:
-      - -X github.com/HZ-PRE/sing-box/constant.Version={{ .Version }} -s -w -buildid=
+      - -X github.com/sagernet/sing-box/constant.Version={{ .Version }} -s -w -buildid=
     tags:
       - with_gvisor
       - with_quic
@@ -68,7 +68,7 @@ nfpms:
       signature:
         key_file: "{{ .Env.NFPM_KEY_PATH }}"
       fields:
-        Bugs: https://github.com/HZ-PRE/sing-box/issues
+        Bugs: https://github.com/sagernet/sing-box/issues
     rpm:
       signature:
         key_file: "{{ .Env.NFPM_KEY_PATH }}"

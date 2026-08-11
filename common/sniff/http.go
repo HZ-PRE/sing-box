@@ -5,8 +5,8 @@ import (
 	"context"
 	"io"
 
-	"github.com/HZ-PRE/sing-box/adapter"
-	C "github.com/HZ-PRE/sing-box/constant"
+	"github.com/sagernet/sing-box/adapter"
+	C "github.com/sagernet/sing-box/constant"
 	M "github.com/sagernet/sing/common/metadata"
 	"github.com/sagernet/sing/protocol/http"
 )

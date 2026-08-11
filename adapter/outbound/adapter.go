@@ -1,7 +1,7 @@
 package outbound
 
 import (
-	"github.com/HZ-PRE/sing-box/option"
+	"github.com/sagernet/sing-box/option"
 )
 
 type Adapter struct {

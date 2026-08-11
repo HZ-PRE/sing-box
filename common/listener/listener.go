@@ -6,9 +6,9 @@ import (
 	"net/netip"
 	"sync/atomic"
 
-	"github.com/HZ-PRE/sing-box/adapter"
-	"github.com/HZ-PRE/sing-box/common/settings"
-	"github.com/HZ-PRE/sing-box/option"
+	"github.com/sagernet/sing-box/adapter"
+	"github.com/sagernet/sing-box/common/settings"
+	"github.com/sagernet/sing-box/option"
 	"github.com/sagernet/sing/common"
 	E "github.com/sagernet/sing/common/exceptions"
 	"github.com/sagernet/sing/common/logger"

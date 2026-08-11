@@ -3,8 +3,8 @@ package rule
 import (
 	"strings"
 
-	"github.com/HZ-PRE/sing-box/adapter"
-	"github.com/HZ-PRE/sing-box/log"
+	"github.com/sagernet/sing-box/adapter"
+	"github.com/sagernet/sing-box/log"
 	E "github.com/sagernet/sing/common/exceptions"
 )
 

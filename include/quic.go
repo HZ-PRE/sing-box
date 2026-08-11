@@ -3,13 +3,13 @@
 package include
 
 import (
-	"github.com/HZ-PRE/sing-box/adapter/inbound"
-	"github.com/HZ-PRE/sing-box/adapter/outbound"
-	"github.com/HZ-PRE/sing-box/protocol/hysteria"
-	"github.com/HZ-PRE/sing-box/protocol/hysteria2"
-	_ "github.com/HZ-PRE/sing-box/protocol/naive/quic"
-	"github.com/HZ-PRE/sing-box/protocol/tuic"
-	_ "github.com/HZ-PRE/sing-box/transport/v2rayquic"
+	"github.com/sagernet/sing-box/adapter/inbound"
+	"github.com/sagernet/sing-box/adapter/outbound"
+	"github.com/sagernet/sing-box/protocol/hysteria"
+	"github.com/sagernet/sing-box/protocol/hysteria2"
+	_ "github.com/sagernet/sing-box/protocol/naive/quic"
+	"github.com/sagernet/sing-box/protocol/tuic"
+	_ "github.com/sagernet/sing-box/transport/v2rayquic"
 	_ "github.com/sagernet/sing-dns/quic"
 )
 

@@ -5,8 +5,8 @@ import (
 	"net"
 	"os"
 
-	"github.com/HZ-PRE/sing-box/common/tls"
-	internal_credentials "github.com/HZ-PRE/sing-box/transport/v2raygrpc/credentials"
+	"github.com/sagernet/sing-box/common/tls"
+	internal_credentials "github.com/sagernet/sing-box/transport/v2raygrpc/credentials"
 
 	"google.golang.org/grpc/credentials"
 )

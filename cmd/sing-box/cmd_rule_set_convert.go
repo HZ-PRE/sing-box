@@ -5,11 +5,11 @@ import (
 	"os"
 	"strings"
 
-	"github.com/HZ-PRE/sing-box/cmd/sing-box/internal/convertor/adguard"
-	"github.com/HZ-PRE/sing-box/common/srs"
-	C "github.com/HZ-PRE/sing-box/constant"
-	"github.com/HZ-PRE/sing-box/log"
-	"github.com/HZ-PRE/sing-box/option"
+	"github.com/sagernet/sing-box/cmd/sing-box/internal/convertor/adguard"
+	"github.com/sagernet/sing-box/common/srs"
+	C "github.com/sagernet/sing-box/constant"
+	"github.com/sagernet/sing-box/log"
+	"github.com/sagernet/sing-box/option"
 	E "github.com/sagernet/sing/common/exceptions"
 
 	"github.com/spf13/cobra"

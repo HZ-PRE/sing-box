@@ -3,7 +3,7 @@ package rule
 import (
 	"strings"
 
-	"github.com/HZ-PRE/sing-box/adapter"
+	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing/common/domain"
 )
 

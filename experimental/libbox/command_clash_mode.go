@@ -6,8 +6,8 @@ import (
 	"net"
 	"time"
 
-	"github.com/HZ-PRE/sing-box/adapter"
-	"github.com/HZ-PRE/sing-box/experimental/clashapi"
+	"github.com/sagernet/sing-box/adapter"
+	"github.com/sagernet/sing-box/experimental/clashapi"
 	E "github.com/sagernet/sing/common/exceptions"
 	"github.com/sagernet/sing/common/varbin"
 )

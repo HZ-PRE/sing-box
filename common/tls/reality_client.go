@@ -27,7 +27,7 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/HZ-PRE/sing-box/option"
+	"github.com/sagernet/sing-box/option"
 	"github.com/sagernet/sing/common/debug"
 	E "github.com/sagernet/sing/common/exceptions"
 	aTLS "github.com/sagernet/sing/common/tls"

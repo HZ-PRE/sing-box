@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/HZ-PRE/sing-box/cmd/internal/build_shared"
-	"github.com/HZ-PRE/sing-box/log"
 	"github.com/sagernet/asc-go/asc"
+	"github.com/sagernet/sing-box/cmd/internal/build_shared"
+	"github.com/sagernet/sing-box/log"
 	"github.com/sagernet/sing/common"
 	E "github.com/sagernet/sing/common/exceptions"
 	F "github.com/sagernet/sing/common/format"
