@@ -6,9 +6,9 @@ import (
 	"net"
 	"time"
 
-	"github.com/sagernet/sing-box/adapter"
-	C "github.com/sagernet/sing-box/constant"
-	dnsOutbound "github.com/sagernet/sing-box/protocol/dns"
+	"github.com/HZ-PRE/sing-box/adapter"
+	C "github.com/HZ-PRE/sing-box/constant"
+	dnsOutbound "github.com/HZ-PRE/sing-box/protocol/dns"
 	dns "github.com/sagernet/sing-dns"
 	tun "github.com/sagernet/sing-tun"
 	"github.com/sagernet/sing/common/buf"

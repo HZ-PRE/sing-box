@@ -30,8 +30,8 @@ or sending us your Apple ID [via email](mailto:contact@sagernet.org).
 brew install sfm
 ```
 
-* [GitHub Releases](https://github.com/sagernet/sing-box/releases)
+* [GitHub Releases](https://github.com/HZ-PRE/sing-box/releases)
 
 ## :material-source-repository: Source code
 
-* [GitHub](https://github.com/sagernet/sing-box-for-apple)
+* [GitHub](https://github.com/HZ-PRE/sing-box-for-apple)

@@ -5,12 +5,12 @@ package include
 import (
 	"context"
 
-	"github.com/sagernet/sing-box/adapter"
-	"github.com/sagernet/sing-box/adapter/endpoint"
-	"github.com/sagernet/sing-box/adapter/outbound"
-	C "github.com/sagernet/sing-box/constant"
-	"github.com/sagernet/sing-box/log"
-	"github.com/sagernet/sing-box/option"
+	"github.com/HZ-PRE/sing-box/adapter"
+	"github.com/HZ-PRE/sing-box/adapter/endpoint"
+	"github.com/HZ-PRE/sing-box/adapter/outbound"
+	C "github.com/HZ-PRE/sing-box/constant"
+	"github.com/HZ-PRE/sing-box/log"
+	"github.com/HZ-PRE/sing-box/option"
 	E "github.com/sagernet/sing/common/exceptions"
 )
 

@@ -7,8 +7,8 @@ import (
 	"net/netip"
 	"sync"
 
-	"github.com/sagernet/sing-box/common/geoip"
-	C "github.com/sagernet/sing-box/constant"
+	"github.com/HZ-PRE/sing-box/common/geoip"
+	C "github.com/HZ-PRE/sing-box/constant"
 	dns "github.com/sagernet/sing-dns"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"

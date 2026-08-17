@@ -1,7 +1,7 @@
 package wireguard
 
 import (
-	"github.com/sagernet/sing-box/common/dialer"
+	"github.com/HZ-PRE/sing-box/common/dialer"
 	"github.com/sagernet/wireguard-go/conn"
 )
 

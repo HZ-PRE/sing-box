@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sagernet/sing-box/adapter"
-	C "github.com/sagernet/sing-box/constant"
-	R "github.com/sagernet/sing-box/route/rule"
+	"github.com/HZ-PRE/sing-box/adapter"
+	C "github.com/HZ-PRE/sing-box/constant"
+	R "github.com/HZ-PRE/sing-box/route/rule"
 	dns "github.com/sagernet/sing-dns"
 	tun "github.com/sagernet/sing-tun"
 	"github.com/sagernet/sing/common/cache"
