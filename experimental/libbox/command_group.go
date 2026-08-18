@@ -92,7 +92,7 @@ func (s *CommandServer) handleGroupConn(conn net.Conn, onlyGroupItems bool) erro
 			for urlTestUpdateStream.HasNext() {
 				urlTestUpdateStream.Next()
 				// val := urlTestUpdateStream.Next()
-				// log.Trace("Hiddify! Receive a change for group info ", val)
+				// log.Trace("Kuailei! Receive a change for group info ", val)
 			}
 		}
 	}

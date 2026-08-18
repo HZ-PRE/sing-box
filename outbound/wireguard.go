@@ -265,29 +265,29 @@ func (w *WireGuard) Close() error {
 }
 
 func (w *WireGuard) InterfaceUpdated() {
-	w.logger.Info("Hiddify! Wirguard! Interface updated!XXX")
+	w.logger.Info("Kuailei! Wirguard! Interface updated!XXX")
 	// <-time.After(10 * time.Millisecond)
 	// if true {
 	// 	return
 	// }
 	if w.pauseManager.IsNetworkPaused() {
-		w.logger.Error("Hiddify! Network is paused!... returning")
+		w.logger.Error("Kuailei! Network is paused!... returning")
 		return
 	}
 	<-time.After(50 * time.Millisecond)
 	err := w.device.BindUpdate()
 	<-time.After(50 * time.Millisecond)
-	// err := fmt.Errorf("Hiddify! downing wireguard interface failed")
+	// err := fmt.Errorf("Kuailei! downing wireguard interface failed")
 
 	if err != nil {
-		w.logger.Error("Hiddify! bind update failed", err)
+		w.logger.Error("Kuailei! bind update failed", err)
 	}
-	// w.logger.Error("Hiddify! downing...")
+	// w.logger.Error("Kuailei! downing...")
 	// e1 := w.device.Down()
 	// if e1 != nil {
-	// 	w.logger.Error("Hiddify! downing wireguard interface failed", e1)
+	// 	w.logger.Error("Kuailei! downing wireguard interface failed", e1)
 	// } else {
-	// 	w.logger.Warn("Hiddify! downing   Ok!")
+	// 	w.logger.Warn("Kuailei! downing   Ok!")
 	// }
 	// for i := 0; i < 5; i++ {
 	// 	if !w.pauseManager.IsNetworkPaused() {
@@ -305,22 +305,22 @@ func (w *WireGuard) InterfaceUpdated() {
 	// 	}
 	// }
 	// <-time.After(100 * time.Millisecond)
-	// w.logger.Warn("Hiddify! uping.... wireguard interface")
+	// w.logger.Warn("Kuailei! uping.... wireguard interface")
 	// e2 := w.device.Up()
 	// if e2 != nil {
-	// 	w.logger.Error("Hiddify! Uping wireguard interface failed", e2)
+	// 	w.logger.Error("Kuailei! Uping wireguard interface failed", e2)
 	// } else {
-	// 	w.logger.Warn("Hiddify! OK!Updating wireguard interface")
+	// 	w.logger.Warn("Kuailei! OK!Updating wireguard interface")
 
 	// }
 	// } else {
-	// 	w.logger.Warn("Hiddify! OK2!Updating wireguard interface")
+	// 	w.logger.Warn("Kuailei! OK2!Updating wireguard interface")
 	// }
 	return
 }
 
 func (w *WireGuard) onPauseUpdated(event int) {
-	w.logger.Info("Hiddify! Wirguard! on Pause updated! event=", event)
+	w.logger.Info("Kuailei! Wirguard! on Pause updated! event=", event)
 	// <-time.After(1000 * time.Millisecond)
 	switch event {
 
@@ -328,13 +328,13 @@ func (w *WireGuard) onPauseUpdated(event int) {
 		w.device.Down()
 	case pause.EventNetworkPause: //hiddify already handled in Interface Updated
 		err := w.device.Down()
-		w.logger.Info("Hiddify! Wirguard! downing net! err=", err)
+		w.logger.Info("Kuailei! Wirguard! downing net! err=", err)
 		<-time.After(50 * time.Millisecond)
 	case pause.EventDeviceWake:
 		w.device.Up()
 	case pause.EventNetworkWake: //hiddify already handled in Interface Updated
 		err := w.device.Up()
-		w.logger.Info("Hiddify! Wirguard! Uping net! err=", err)
+		w.logger.Info("Kuailei! Wirguard! Uping net! err=", err)
 		<-time.After(50 * time.Millisecond)
 	}
 }

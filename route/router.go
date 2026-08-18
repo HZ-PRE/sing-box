@@ -397,7 +397,7 @@ func NewRouter(
 		}
 		ctx, metadata := adapter.AppendContext(ctx)
 		metadata.Domain = domain
-		ctx, dnstransport, _, _, _ := router.matchDNS(ctx, false, 0,true)
+		ctx, dnstransport, _, _, _ := router.matchDNS(ctx, false, 0, true)
 
 		if dnstransport != nil && dnstransport.Name() == tag {
 			return nil, E.New("Dns Loop Detected[", tag, "]")
@@ -1144,7 +1144,7 @@ func (r *Router) InterfaceFinder() control.InterfaceFinder {
 }
 
 func (r *Router) UpdateInterfaces() error {
-	r.logger.Info("Hiddify!UpdateInterfaces ")
+	r.logger.Info("Kuailei!UpdateInterfaces ")
 	if r.platformInterface == nil || !r.platformInterface.UsePlatformInterfaceGetter() {
 		return r.interfaceFinder.Update()
 	} else {
@@ -1244,7 +1244,7 @@ func (r *Router) NewError(ctx context.Context, err error) {
 }
 
 func (r *Router) notifyNetworkUpdate(event int) {
-	r.logger.Info("Hiddify!notifyNetworkUpdate ", event)
+	r.logger.Info("Kuailei!notifyNetworkUpdate ", event)
 	if event == tun.EventNoRoute {
 		r.pauseManager.NetworkPause()
 		r.logger.Error("missing default interface")
@@ -1271,7 +1271,7 @@ func (r *Router) notifyNetworkUpdate(event int) {
 }
 
 func (r *Router) ResetNetwork() error {
-	r.logger.Info("Hiddify!Reseting Network")
+	r.logger.Info("Kuailei!Reseting Network")
 	conntrack.Close()
 
 	for _, outbound := range r.sortedOutboundsByDependenciesHiddify {
