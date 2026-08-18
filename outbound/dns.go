@@ -6,9 +6,9 @@ import (
 	"net"
 	"os"
 
-	"github.com/sagernet/sing-box/adapter"
-	C "github.com/sagernet/sing-box/constant"
-	"github.com/sagernet/sing-dns"
+	"github.com/HZ-PRE/sing-box/adapter"
+	C "github.com/HZ-PRE/sing-box/constant"
+	dns "github.com/sagernet/sing-dns"
 	"github.com/sagernet/sing/common"
 	"github.com/sagernet/sing/common/buf"
 	"github.com/sagernet/sing/common/bufio"

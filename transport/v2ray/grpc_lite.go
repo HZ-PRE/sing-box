@@ -5,10 +5,10 @@ package v2ray
 import (
 	"context"
 
-	"github.com/sagernet/sing-box/adapter"
-	"github.com/sagernet/sing-box/common/tls"
-	"github.com/sagernet/sing-box/option"
-	"github.com/sagernet/sing-box/transport/v2raygrpclite"
+	"github.com/HZ-PRE/sing-box/adapter"
+	"github.com/HZ-PRE/sing-box/common/tls"
+	"github.com/HZ-PRE/sing-box/option"
+	"github.com/HZ-PRE/sing-box/transport/v2raygrpclite"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
 )

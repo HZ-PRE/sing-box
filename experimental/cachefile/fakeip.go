@@ -5,8 +5,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/HZ-PRE/sing-box/adapter"
 	"github.com/sagernet/bbolt"
-	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing/common/logger"
 	M "github.com/sagernet/sing/common/metadata"
 )

@@ -6,9 +6,9 @@ import (
 	"net/netip"
 	"time"
 
-	"github.com/sagernet/sing-box/adapter"
-	"github.com/sagernet/sing-box/log"
-	"github.com/sagernet/sing-dns"
+	"github.com/HZ-PRE/sing-box/adapter"
+	"github.com/HZ-PRE/sing-box/log"
+	dns "github.com/sagernet/sing-dns"
 	"github.com/sagernet/sing/common/bufio"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"

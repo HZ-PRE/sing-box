@@ -4,8 +4,8 @@ import (
 	"net/netip"
 	"testing"
 
-	C "github.com/sagernet/sing-box/constant"
-	"github.com/sagernet/sing-box/option"
+	C "github.com/HZ-PRE/sing-box/constant"
+	"github.com/HZ-PRE/sing-box/option"
 )
 
 func TestTrojanOutbound(t *testing.T) {

@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/sagernet/sing-box/adapter"
-	"github.com/sagernet/sing-tun"
+	"github.com/HZ-PRE/sing-box/adapter"
+	tun "github.com/sagernet/sing-tun"
 	E "github.com/sagernet/sing/common/exceptions"
 	M "github.com/sagernet/sing/common/metadata"
 	"github.com/sagernet/sing/common/shell"

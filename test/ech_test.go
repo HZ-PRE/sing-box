@@ -4,9 +4,9 @@ import (
 	"net/netip"
 	"testing"
 
-	"github.com/sagernet/sing-box/common/tls"
-	C "github.com/sagernet/sing-box/constant"
-	"github.com/sagernet/sing-box/option"
+	"github.com/HZ-PRE/sing-box/common/tls"
+	C "github.com/HZ-PRE/sing-box/constant"
+	"github.com/HZ-PRE/sing-box/option"
 	"github.com/sagernet/sing/common"
 
 	"github.com/gofrs/uuid/v5"

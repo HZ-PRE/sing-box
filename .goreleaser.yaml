@@ -7,7 +7,7 @@ builds:
       - -v
       - -trimpath
     ldflags:
-      - -X github.com/sagernet/sing-box/constant.Version={{ .Version }} -s -w -buildid=
+      - -X github.com/HZ-PRE/sing-box/constant.Version={{ .Version }} -s -w -buildid=
     tags:
       - with_gvisor
       - with_quic

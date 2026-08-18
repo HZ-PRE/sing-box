@@ -5,8 +5,8 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"github.com/sagernet/sing-box/common/sniff"
-	C "github.com/sagernet/sing-box/constant"
+	"github.com/HZ-PRE/sing-box/common/sniff"
+	C "github.com/HZ-PRE/sing-box/constant"
 
 	"github.com/stretchr/testify/require"
 )

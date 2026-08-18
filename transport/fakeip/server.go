@@ -5,8 +5,8 @@ import (
 	"net/netip"
 	"os"
 
-	"github.com/sagernet/sing-box/adapter"
-	"github.com/sagernet/sing-dns"
+	"github.com/HZ-PRE/sing-box/adapter"
+	dns "github.com/sagernet/sing-dns"
 	E "github.com/sagernet/sing/common/exceptions"
 	"github.com/sagernet/sing/common/logger"
 	N "github.com/sagernet/sing/common/network"
