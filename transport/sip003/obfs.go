@@ -5,7 +5,7 @@ import (
 	"net"
 
 	"github.com/sagernet/sing-box/adapter"
-	obfs "github.com/sagernet/sing-box/transport/simple-obfs"
+	"github.com/sagernet/sing-box/transport/simple-obfs"
 	E "github.com/sagernet/sing/common/exceptions"
 	F "github.com/sagernet/sing/common/format"
 	M "github.com/sagernet/sing/common/metadata"

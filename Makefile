@@ -64,7 +64,7 @@ proto_install:
 	go install -v google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 
 release:
-	go run ./cmd/internal/build goreleaser release --clean --skip publish --skip fury
+	go run ./cmd/internal/build goreleaser release --clean --skip publish
 	mkdir dist/release
 	mv dist/*.tar.gz \
 		dist/*.zip \
@@ -81,14 +81,13 @@ release_repo:
 	go run ./cmd/internal/build goreleaser release -f .goreleaser.fury.yaml --clean
 
 release_install:
-	go install -v github.com/goreleaser/goreleaser@latest
 	go install -v github.com/tcnksm/ghr@latest
 
 update_android_version:
 	go run ./cmd/internal/update_android_version
 
 build_android:
-	cd ../sing-box-for-android && ./gradlew :app:assemblePlayRelease && ./gradlew :app:assembleOtherRelease && ./gradlew --stop
+	cd ../sing-box-for-android && ./gradlew :app:clean :app:assemblePlayRelease :app:assembleOtherRelease && ./gradlew --stop
 
 upload_android:
 	mkdir -p dist/release_android
@@ -198,13 +197,15 @@ lib_install:
 	go install -v github.com/sagernet/gomobile/cmd/gobind@v0.1.3
 
 docs:
-	mkdocs serve
+	venv/bin/mkdocs serve
 
 publish_docs:
-	mkdocs gh-deploy -m "Update" --force --ignore-version --no-history
+	venv/bin/mkdocs gh-deploy -m "Update" --force --ignore-version --no-history
 
 docs_install:
-	pip install --force-reinstall mkdocs-material=="9.*" mkdocs-static-i18n=="1.2.*"
+	python -m venv venv
+	source ./venv/bin/activate && pip install --force-reinstall mkdocs-material=="9.*" mkdocs-static-i18n=="1.2.*"
+
 clean:
 	rm -rf bin dist sing-box
 	rm -f $(shell go env GOPATH)/sing-box

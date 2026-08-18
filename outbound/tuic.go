@@ -23,6 +23,8 @@ import (
 	"github.com/sagernet/sing/common/uot"
 
 	"github.com/gofrs/uuid/v5"
+	
+	"github.com/sagernet/sing-box/outbound/houtbound"
 )
 
 var (
@@ -34,6 +36,7 @@ type TUIC struct {
 	myOutboundAdapter
 	client    *tuic.Client
 	udpStream bool
+	hforwarder   *houtbound.Forwarder
 }
 
 func NewTUIC(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options option.TUICOutboundOptions) (*TUIC, error) {
@@ -41,6 +44,7 @@ func NewTUIC(ctx context.Context, router adapter.Router, logger log.ContextLogge
 	if options.TLS == nil || !options.TLS.Enabled {
 		return nil, C.ErrTLSRequired
 	}
+	hforwarder := houtbound.ApplyTurnRelay(houtbound.CommonTurnRelayOptions{ServerOptions: options.ServerOptions,TurnRelayOptions: options.TurnRelay})
 	tlsConfig, err := tls.NewClient(ctx, options.Server, common.PtrValueOrDefault(options.TLS))
 	if err != nil {
 		return nil, err
@@ -88,6 +92,7 @@ func NewTUIC(ctx context.Context, router adapter.Router, logger log.ContextLogge
 		},
 		client:    client,
 		udpStream: options.UDPOverStream,
+		hforwarder:  hforwarder,
 	}, nil
 }
 
@@ -149,5 +154,8 @@ func (h *TUIC) InterfaceUpdated() {
 }
 
 func (h *TUIC) Close() error {
+	if h.hforwarder != nil {
+		h.hforwarder.Close()
+	}
 	return h.client.CloseWithError(os.ErrClosed)
 }

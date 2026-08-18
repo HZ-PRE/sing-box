@@ -1,5 +1,4 @@
 package option
-
 type HysteriaInboundOptions struct {
 	ListenOptions
 	Up                  string         `json:"up,omitempty"`
@@ -36,4 +35,5 @@ type HysteriaOutboundOptions struct {
 	DisableMTUDiscovery bool        `json:"disable_mtu_discovery,omitempty"`
 	Network             NetworkList `json:"network,omitempty"`
 	OutboundTLSOptionsContainer
+	TurnRelay   		*TurnRelayOptions`json:"turn_relay,omitempty"`	
 }

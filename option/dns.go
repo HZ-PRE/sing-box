@@ -3,11 +3,12 @@ package option
 import "net/netip"
 
 type DNSOptions struct {
-	Servers        []DNSServerOptions `json:"servers,omitempty"`
-	Rules          []DNSRule          `json:"rules,omitempty"`
-	Final          string             `json:"final,omitempty"`
-	ReverseMapping bool               `json:"reverse_mapping,omitempty"`
-	FakeIP         *DNSFakeIPOptions  `json:"fakeip,omitempty"`
+	Servers        []DNSServerOptions  `json:"servers,omitempty"`
+	Rules          []DNSRule           `json:"rules,omitempty"`
+	Final          string              `json:"final,omitempty"`
+	ReverseMapping bool                `json:"reverse_mapping,omitempty"`
+	FakeIP         *DNSFakeIPOptions   `json:"fakeip,omitempty"`
+	StaticIPs      map[string][]string `json:"static_ips,omitempty"`
 	DNSClientOptions
 }
 
@@ -19,6 +20,7 @@ type DNSServerOptions struct {
 	AddressFallbackDelay Duration       `json:"address_fallback_delay,omitempty"`
 	Strategy             DomainStrategy `json:"strategy,omitempty"`
 	Detour               string         `json:"detour,omitempty"`
+	ClientSubnet         *AddrPrefix    `json:"client_subnet,omitempty"`
 }
 
 type DNSClientOptions struct {
@@ -26,6 +28,7 @@ type DNSClientOptions struct {
 	DisableCache     bool           `json:"disable_cache,omitempty"`
 	DisableExpire    bool           `json:"disable_expire,omitempty"`
 	IndependentCache bool           `json:"independent_cache,omitempty"`
+	ClientSubnet     *AddrPrefix    `json:"client_subnet,omitempty"`
 }
 
 type DNSFakeIPOptions struct {

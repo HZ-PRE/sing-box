@@ -13,7 +13,7 @@ import (
 	"github.com/sagernet/sing-box/experimental/libbox/platform"
 	"github.com/sagernet/sing-box/log"
 	"github.com/sagernet/sing-box/option"
-	tun "github.com/sagernet/sing-tun"
+	"github.com/sagernet/sing-tun"
 	"github.com/sagernet/sing/common"
 	E "github.com/sagernet/sing/common/exceptions"
 	M "github.com/sagernet/sing/common/metadata"
@@ -153,7 +153,7 @@ func (t *Tun) Start() error {
 		tunInterface tun.Tun
 		err          error
 	)
-	monitor := taskmonitor.New(t.logger, C.DefaultStartTimeout)
+	monitor := taskmonitor.New(t.logger, C.StartTimeout)
 	monitor.Start("open tun interface")
 	if t.platformInterface != nil {
 		tunInterface, err = t.platformInterface.OpenTun(&t.tunOptions, t.platformOptions)
@@ -166,7 +166,15 @@ func (t *Tun) Start() error {
 	}
 	t.logger.Trace("creating stack")
 	t.tunIf = tunInterface
-	t.tunStack, err = tun.NewStack(t.stack, tun.StackOptions{
+	var (
+		forwarderBindInterface bool
+		includeAllNetworks     bool
+	)
+	if t.platformInterface != nil {
+		forwarderBindInterface = true
+		includeAllNetworks = t.platformInterface.IncludeAllNetworks()
+	}
+	tunStack, err := tun.NewStack(t.stack, tun.StackOptions{
 		Context:                t.ctx,
 		Tun:                    tunInterface,
 		TunOptions:             t.tunOptions,
@@ -174,15 +182,17 @@ func (t *Tun) Start() error {
 		UDPTimeout:             t.udpTimeout,
 		Handler:                t,
 		Logger:                 t.logger,
-		ForwarderBindInterface: t.platformInterface != nil,
+		ForwarderBindInterface: forwarderBindInterface,
 		InterfaceFinder:        t.router.InterfaceFinder(),
+		IncludeAllNetworks:     includeAllNetworks,
 	})
 	if err != nil {
 		return err
 	}
 	monitor.Start("initiating tun stack")
-	err = t.tunStack.Start()
+	err = tunStack.Start()
 	monitor.Finish()
+	t.tunStack = tunStack
 	if err != nil {
 		return err
 	}

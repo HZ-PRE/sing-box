@@ -57,7 +57,7 @@ func (c *CommandClient) handleGroupConn(conn net.Conn) {
 	}
 }
 
-func (s *CommandServer) handleGroupConn(conn net.Conn) error {
+func (s *CommandServer) handleGroupConn(conn net.Conn, onlyGroupItems bool) error {
 	var interval int64
 	err := binary.Read(conn, binary.BigEndian, &interval)
 	if err != nil {
@@ -66,10 +66,11 @@ func (s *CommandServer) handleGroupConn(conn net.Conn) error {
 	ticker := time.NewTicker(time.Duration(interval))
 	defer ticker.Stop()
 	ctx := connKeepAlive(conn)
+	urlTestUpdateStream := s.urlTestUpdate.Observe()
 	for {
 		service := s.service
 		if service != nil {
-			err := writeGroups(conn, service)
+			err := writeGroups(conn, service, onlyGroupItems)
 			if err != nil {
 				return err
 			}
@@ -87,7 +88,12 @@ func (s *CommandServer) handleGroupConn(conn net.Conn) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-s.urlTestUpdate:
+		case <-urlTestUpdateStream.Changes():
+			for urlTestUpdateStream.HasNext() {
+				urlTestUpdateStream.Next()
+				// val := urlTestUpdateStream.Next()
+				// log.Trace("Hiddify! Receive a change for group info ", val)
+			}
 		}
 	}
 }
@@ -163,7 +169,7 @@ func readGroups(reader io.Reader) (OutboundGroupIterator, error) {
 	return newIterator(groups), nil
 }
 
-func writeGroups(writer io.Writer, boxService *BoxService) error {
+func writeGroups(writer io.Writer, boxService *BoxService, onlyGroupitems bool) error {
 	historyStorage := service.PtrFromContext[urltest.HistoryStorage](boxService.ctx)
 	cacheFile := service.FromContext[adapter.CacheFile](boxService.ctx)
 	outbounds := boxService.instance.Router().Outbounds()
@@ -191,7 +197,9 @@ func writeGroups(writer io.Writer, boxService *BoxService) error {
 			if !isLoaded {
 				continue
 			}
-
+			if onlyGroupitems && itemTag != group.Selected {
+				continue
+			}
 			var item OutboundGroupItem
 			item.Tag = itemTag
 			item.Type = itemOutbound.Type()
@@ -201,7 +209,7 @@ func writeGroups(writer io.Writer, boxService *BoxService) error {
 			}
 			group.items = append(group.items, &item)
 		}
-		if len(group.items) < 2 {
+		if len(group.items) < 2 && !onlyGroupitems {
 			continue
 		}
 		groups = append(groups, group)

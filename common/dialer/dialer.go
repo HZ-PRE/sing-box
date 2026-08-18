@@ -5,13 +5,16 @@ import (
 
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/option"
-	dns "github.com/sagernet/sing-dns"
+	"github.com/sagernet/sing-dns"
 	N "github.com/sagernet/sing/common/network"
 )
 
 func New(router adapter.Router, options option.DialerOptions) (N.Dialer, error) {
 	if options.IsWireGuardListener {
 		return NewDefault(router, options)
+	}
+	if router == nil {
+		return NewDefault(nil, options)
 	}
 	var (
 		dialer N.Dialer

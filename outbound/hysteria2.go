@@ -20,6 +20,7 @@ import (
 	E "github.com/sagernet/sing/common/exceptions"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
+	"github.com/sagernet/sing-box/outbound/houtbound"
 )
 
 var (
@@ -30,6 +31,7 @@ var (
 type Hysteria2 struct {
 	myOutboundAdapter
 	client *hysteria2.Client
+	hforwarder   *houtbound.Forwarder
 }
 
 func NewHysteria2(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options option.Hysteria2OutboundOptions) (*Hysteria2, error) {
@@ -37,6 +39,8 @@ func NewHysteria2(ctx context.Context, router adapter.Router, logger log.Context
 	if options.TLS == nil || !options.TLS.Enabled {
 		return nil, C.ErrTLSRequired
 	}
+	hforwarder := houtbound.ApplyTurnRelay(houtbound.CommonTurnRelayOptions{ServerOptions: options.ServerOptions,TurnRelayOptions: options.TurnRelay})
+	
 	tlsConfig, err := tls.NewClient(ctx, options.Server, common.PtrValueOrDefault(options.TLS))
 	if err != nil {
 		return nil, err
@@ -84,6 +88,7 @@ func NewHysteria2(ctx context.Context, router adapter.Router, logger log.Context
 			dependencies: withDialerDependency(options.DialerOptions),
 		},
 		client: client,
+		hforwarder:  hforwarder,
 	}, nil
 }
 
@@ -116,10 +121,13 @@ func (h *Hysteria2) NewPacketConnection(ctx context.Context, conn N.PacketConn, 
 	return NewPacketConnection(ctx, h, conn, metadata)
 }
 
-func (h *Hysteria2) InterfaceUpdated() error {
-	return h.client.CloseWithError(E.New("network changed"))
+func (h *Hysteria2) InterfaceUpdated() {
+	h.client.CloseWithError(E.New("network changed"))
 }
 
 func (h *Hysteria2) Close() error {
+	if h.hforwarder != nil {
+		h.hforwarder.Close()
+	}
 	return h.client.CloseWithError(os.ErrClosed)
 }

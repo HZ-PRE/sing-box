@@ -12,7 +12,7 @@ import (
 	"github.com/sagernet/sing-box/log"
 	"github.com/sagernet/sing-box/option"
 	"github.com/sagernet/sing-box/transport/v2ray"
-	vmess "github.com/sagernet/sing-vmess"
+	"github.com/sagernet/sing-vmess"
 	"github.com/sagernet/sing-vmess/packetaddr"
 	"github.com/sagernet/sing/common"
 	E "github.com/sagernet/sing/common/exceptions"
@@ -103,6 +103,9 @@ func NewVMess(ctx context.Context, router adapter.Router, logger log.ContextLogg
 }
 
 func (h *VMess) InterfaceUpdated() {
+	if h.transport != nil {
+		h.transport.Close()
+	}
 	if h.multiplexDialer != nil {
 		h.multiplexDialer.Reset()
 	}

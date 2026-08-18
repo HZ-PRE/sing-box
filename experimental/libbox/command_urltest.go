@@ -74,13 +74,15 @@ func (s *CommandServer) handleURLTest(conn net.Conn) error {
 			b.Go(outboundTag, func() (any, error) {
 				t, err := urltest.URLTest(serviceNow.ctx, "", outboundToTest)
 				if err != nil {
-					historyStorage.DeleteURLTestHistory(outboundTag)
+					// historyStorage.DeleteURLTestHistory(outboundTag)
+					t = 65535
 				} else {
-					historyStorage.StoreURLTestHistory(outboundTag, &urltest.History{
-						Time:  time.Now(),
-						Delay: t,
-					})
 				}
+				historyStorage.StoreURLTestHistory(outboundTag, &urltest.History{
+					Time:  time.Now(),
+					Delay: t,
+				})
+
 				return nil, nil
 			})
 		}

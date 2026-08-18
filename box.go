@@ -119,6 +119,8 @@ func New(options Options) (*Box, error) {
 		}
 		inbounds = append(inbounds, in)
 	}
+	var lastErr error      //hiddify
+	var lastErrDesc string //hiddify
 	for i, outboundOptions := range options.Outbounds {
 		var out adapter.Outbound
 		var tag string
@@ -134,10 +136,20 @@ func New(options Options) (*Box, error) {
 			tag,
 			outboundOptions)
 		if err != nil {
-			return nil, E.Cause(err, "parse outbound[", i, "]")
+			lastErrDesc = fmt.Sprintf("parse outbound[%d] error: %+v", i, err) //hiddify
+			fmt.Println(lastErrDesc)
+			lastErr = err //hiddify
+			out = outbound.NewInvalidConfig(
+				logFactory.NewLogger(F.ToString("outbound/", outboundOptions.Type, "[", tag, "]")),
+				tag,
+				err) //hiddify
 		}
+
 		outbounds = append(outbounds, out)
 	}
+	if len(outbounds) == 0 && lastErr != nil { //hiddify
+		return nil, E.Cause(lastErr, lastErrDesc) //hiddify
+	} //hiddify
 	err = router.Initialize(inbounds, outbounds, func() adapter.Outbound {
 		out, oErr := outbound.New(ctx, router, logFactory.NewLogger("outbound/direct"), "direct", option.Outbound{Type: "direct", Tag: "default"})
 		common.Must(oErr)
@@ -203,7 +215,7 @@ func (s *Box) PreStart() error {
 		defer func() {
 			v := recover()
 			if v != nil {
-				log.Error(E.Cause(err, "origin error"))
+				println(err.Error())
 				debug.PrintStack()
 				panic("panic on early close: " + fmt.Sprint(v))
 			}
@@ -222,9 +234,9 @@ func (s *Box) Start() error {
 		defer func() {
 			v := recover()
 			if v != nil {
-				log.Error(E.Cause(err, "origin error"))
+				println(err.Error())
 				debug.PrintStack()
-				panic("panic on early close: " + fmt.Sprint(v))
+				println("panic on early start: " + fmt.Sprint(v))
 			}
 		}()
 		s.Close()
@@ -235,7 +247,7 @@ func (s *Box) Start() error {
 }
 
 func (s *Box) preStart() error {
-	monitor := taskmonitor.New(s.logger, C.DefaultStartTimeout)
+	monitor := taskmonitor.New(s.logger, C.StartTimeout)
 	monitor.Start("start logger")
 	err := s.logFactory.Start()
 	monitor.Finish()
@@ -331,7 +343,7 @@ func (s *Box) Close() error {
 	default:
 		close(s.done)
 	}
-	monitor := taskmonitor.New(s.logger, C.DefaultStopTimeout)
+	monitor := taskmonitor.New(s.logger, C.StopTimeout)
 	var errors error
 	for serviceName, service := range s.postServices {
 		monitor.Start("close ", serviceName)
@@ -341,14 +353,14 @@ func (s *Box) Close() error {
 		monitor.Finish()
 	}
 	for i, in := range s.inbounds {
-		monitor.Start("close inbound/", in.Type(), "[", i, "]")
+		monitor.Start("close inbound/", in.Type(), "[", in.Tag(), "]")
 		errors = E.Append(errors, in.Close(), func(err error) error {
 			return E.Cause(err, "close inbound/", in.Type(), "[", i, "]")
 		})
 		monitor.Finish()
 	}
-	for i, out := range s.outbounds {
-		monitor.Start("close outbound/", out.Type(), "[", i, "]")
+	for i, out := range s.Router().SortedOutboundsByDependenciesHiddify() {
+		monitor.Start("close outbound/", out.Type(), "[", out.Tag(), "]")
 		errors = E.Append(errors, common.Close(out), func(err error) error {
 			return E.Cause(err, "close outbound/", out.Type(), "[", i, "]")
 		})

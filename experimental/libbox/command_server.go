@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/imkira/go-observer/v2"
 	"github.com/sagernet/sing-box/common/urltest"
 	"github.com/sagernet/sing-box/experimental/clashapi"
 	"github.com/sagernet/sing-box/log"
@@ -30,7 +31,7 @@ type CommandServer struct {
 	service    *BoxService
 
 	// These channels only work with a single client. if multi-client support is needed, replace with Subscriber/Observer
-	urlTestUpdate chan struct{}
+	urlTestUpdate observer.Property[int]
 	modeUpdate    chan struct{}
 	logReset      chan struct{}
 }
@@ -47,7 +48,7 @@ func NewCommandServer(handler CommandServerHandler, maxLines int32) *CommandServ
 		handler:       handler,
 		maxLines:      int(maxLines),
 		subscriber:    observable.NewSubscriber[string](128),
-		urlTestUpdate: make(chan struct{}, 1),
+		urlTestUpdate: observer.NewProperty(0),
 		modeUpdate:    make(chan struct{}, 1),
 		logReset:      make(chan struct{}, 1),
 	}
@@ -58,7 +59,15 @@ func NewCommandServer(handler CommandServerHandler, maxLines int32) *CommandServ
 func (s *CommandServer) SetService(newService *BoxService) {
 	if newService != nil {
 		service.PtrFromContext[urltest.HistoryStorage](newService.ctx).SetHook(s.urlTestUpdate)
-		newService.instance.Router().ClashServer().(*clashapi.Server).SetModeUpdateHook(s.modeUpdate)
+
+		if clashServer := newService.instance.Router().ClashServer(); clashServer != nil {
+			clashServer.(*clashapi.Server).SetModeUpdateHook(s.modeUpdate)
+		}
+		s.savedLines.Init()
+		select {
+		case s.logReset <- struct{}{}:
+		default:
+		}
 	}
 	s.service = newService
 	s.notifyURLTestUpdate()
@@ -73,10 +82,11 @@ func (s *CommandServer) ResetLog() {
 }
 
 func (s *CommandServer) notifyURLTestUpdate() {
-	select {
-	case s.urlTestUpdate <- struct{}{}:
-	default:
-	}
+	// select {
+	// case s.urlTestUpdate <- struct{}{}:
+	// default:
+	// }
+	s.urlTestUpdate.Update(1)
 }
 
 func (s *CommandServer) Start() error {
@@ -161,7 +171,9 @@ func (s *CommandServer) handleConnection(conn net.Conn) error {
 	case CommandCloseConnections:
 		return s.handleCloseConnections(conn)
 	case CommandGroup:
-		return s.handleGroupConn(conn)
+		return s.handleGroupConn(conn, false)
+	case CommandGroupInfoOnly:
+		return s.handleGroupConn(conn, true)
 	case CommandSelectOutbound:
 		return s.handleSelectOutbound(conn)
 	case CommandURLTest:

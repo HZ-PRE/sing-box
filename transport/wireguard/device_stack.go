@@ -18,7 +18,7 @@ import (
 	"github.com/sagernet/gvisor/pkg/tcpip/transport/icmp"
 	"github.com/sagernet/gvisor/pkg/tcpip/transport/tcp"
 	"github.com/sagernet/gvisor/pkg/tcpip/transport/udp"
-	"github.com/sagernet/sing-tun"
+	tun "github.com/sagernet/sing-tun"
 	"github.com/sagernet/sing/common/buf"
 	E "github.com/sagernet/sing/common/exceptions"
 	M "github.com/sagernet/sing/common/metadata"
@@ -34,7 +34,7 @@ type StackDevice struct {
 	stack          *stack.Stack
 	mtu            uint32
 	events         chan wgTun.Event
-	outbound       chan stack.PacketBufferPtr
+	outbound       chan *stack.PacketBuffer
 	packetOutbound chan *buf.Buffer
 	done           chan struct{}
 	dispatcher     stack.NetworkDispatcher
@@ -52,7 +52,7 @@ func NewStackDevice(localAddresses []netip.Prefix, mtu uint32) (*StackDevice, er
 		stack:          ipStack,
 		mtu:            mtu,
 		events:         make(chan wgTun.Event, 1),
-		outbound:       make(chan stack.PacketBufferPtr, 256),
+		outbound:       make(chan *stack.PacketBuffer, 256),
 		packetOutbound: make(chan *buf.Buffer, 256),
 		done:           make(chan struct{}),
 	}
@@ -192,6 +192,9 @@ func (w *StackDevice) Read(bufs [][]byte, sizes []int, offset int) (count int, e
 
 func (w *StackDevice) Write(bufs [][]byte, offset int) (count int, err error) {
 	for _, b := range bufs {
+		// if len(b) <= offset {
+		// 	continue
+		// }
 		b = b[offset:]
 		if len(b) == 0 {
 			continue
@@ -206,7 +209,9 @@ func (w *StackDevice) Write(bufs [][]byte, offset int) (count int, err error) {
 		packetBuffer := stack.NewPacketBuffer(stack.PacketBufferOptions{
 			Payload: buffer.MakeWithData(b),
 		})
-		w.dispatcher.DeliverNetworkPacket(networkProtocol, packetBuffer)
+		if w.dispatcher != nil {
+			w.dispatcher.DeliverNetworkPacket(networkProtocol, packetBuffer)
+		}
 		packetBuffer.DecRef()
 		count++
 	}
@@ -283,10 +288,10 @@ func (ep *wireEndpoint) ARPHardwareType() header.ARPHardwareType {
 	return header.ARPHardwareNone
 }
 
-func (ep *wireEndpoint) AddHeader(buffer stack.PacketBufferPtr) {
+func (ep *wireEndpoint) AddHeader(buffer *stack.PacketBuffer) {
 }
 
-func (ep *wireEndpoint) ParseHeader(ptr stack.PacketBufferPtr) bool {
+func (ep *wireEndpoint) ParseHeader(ptr *stack.PacketBuffer) bool {
 	return true
 }
 

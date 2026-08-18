@@ -22,6 +22,9 @@ import (
 	"github.com/sagernet/sing/service/pause"
 )
 
+const TimeoutDelay = 65535
+const MinFailureToReset = 15
+
 var (
 	_ adapter.Outbound                = (*URLTest)(nil)
 	_ adapter.OutboundGroup           = (*URLTest)(nil)
@@ -142,8 +145,17 @@ func (s *URLTest) DialContext(ctx context.Context, network string, destination M
 	}
 	conn, err := outbound.DialContext(ctx, network, destination)
 	if err == nil {
+		// s.group.tcpConnectionFailureCount.Decrement(false)
+		s.group.tcpConnectionFailureCount.Reset()
 		return s.group.interruptGroup.NewConn(conn, interrupt.IsExternalConnectionFromContext(ctx)), nil
 	}
+
+	if !s.group.pauseManager.IsNetworkPaused() && s.group.tcpConnectionFailureCount.IncrementConditionReset(MinFailureToReset) {
+		s.logger.Warn("TCP URLTest Outbound ", s.tag, " (", outboundToString(s.group.selectedOutboundTCP), ") failed to connect for ", MinFailureToReset, " times==> test proxies again!")
+		s.group.selectedOutboundTCP = nil
+		s.CheckOutbounds()
+	}
+
 	s.logger.ErrorContext(ctx, err)
 	s.group.history.DeleteURLTestHistory(outbound.Tag())
 	return nil, err
@@ -160,7 +172,14 @@ func (s *URLTest) ListenPacket(ctx context.Context, destination M.Socksaddr) (ne
 	}
 	conn, err := outbound.ListenPacket(ctx, destination)
 	if err == nil {
+		// s.group.udpConnectionFailureCount.Decrement(false)
+		s.group.udpConnectionFailureCount.Reset()
 		return s.group.interruptGroup.NewPacketConn(conn, interrupt.IsExternalConnectionFromContext(ctx)), nil
+	}
+	if !s.group.pauseManager.IsNetworkPaused() && s.group.udpConnectionFailureCount.IncrementConditionReset(MinFailureToReset) {
+		s.logger.Info("Hiddify! UDP URLTest Outbound ", s.tag, " (", outboundToString(s.group.selectedOutboundUDP), ") failed to connect for ", MinFailureToReset, " times==> test proxies again!")
+		s.group.selectedOutboundUDP = nil
+		s.group.urlTest(ctx, true)
 	}
 	s.logger.ErrorContext(ctx, err)
 	s.group.history.DeleteURLTestHistory(outbound.Tag())
@@ -204,6 +223,9 @@ type URLTestGroup struct {
 	close      chan struct{}
 	started    bool
 	lastActive atomic.TypedValue[time.Time]
+
+	tcpConnectionFailureCount MinZeroAtomicInt64
+	udpConnectionFailureCount MinZeroAtomicInt64
 }
 
 func NewURLTestGroup(
@@ -286,20 +308,34 @@ func (g *URLTestGroup) Close() error {
 }
 
 func (g *URLTestGroup) Select(network string) (adapter.Outbound, bool) {
-	var minDelay uint16
-	var minTime time.Time
+	var minDelay uint16 = TimeoutDelay
 	var minOutbound adapter.Outbound
+	switch network {
+	case N.NetworkTCP:
+		if g.selectedOutboundTCP != nil {
+			if history := g.history.LoadURLTestHistory(RealTag(g.selectedOutboundTCP)); history != nil && history.Delay != TimeoutDelay {
+				minOutbound = g.selectedOutboundTCP
+				minDelay = history.Delay
+			}
+		}
+	case N.NetworkUDP:
+		if g.selectedOutboundUDP != nil {
+			if history := g.history.LoadURLTestHistory(RealTag(g.selectedOutboundUDP)); history != nil && history.Delay != TimeoutDelay {
+				minOutbound = g.selectedOutboundUDP
+				minDelay = history.Delay
+			}
+		}
+	}
 	for _, detour := range g.outbounds {
 		if !common.Contains(detour.Network(), network) {
 			continue
 		}
 		history := g.history.LoadURLTestHistory(RealTag(detour))
-		if history == nil {
+		if history == nil || history.Delay == TimeoutDelay {
 			continue
 		}
-		if minDelay == 0 || minDelay > history.Delay+g.tolerance || minDelay > history.Delay-g.tolerance && minTime.Before(history.Time) {
+		if minDelay == 0 || minDelay == TimeoutDelay || minDelay > history.Delay+g.tolerance {
 			minDelay = history.Delay
-			minTime = history.Time
 			minOutbound = detour
 		}
 	}
@@ -362,7 +398,7 @@ func (g *URLTestGroup) urlTest(ctx context.Context, force bool) (map[string]uint
 			continue
 		}
 		history := g.history.LoadURLTestHistory(realTag)
-		if !force && history != nil && time.Now().Sub(history.Time) < g.interval {
+		if !force && history != nil && history.Delay != TimeoutDelay && time.Now().Sub(history.Time) < g.interval {
 			continue
 		}
 		checked[realTag] = true
@@ -371,22 +407,25 @@ func (g *URLTestGroup) urlTest(ctx context.Context, force bool) (map[string]uint
 			continue
 		}
 		b.Go(realTag, func() (any, error) {
-			ctx, cancel := context.WithTimeout(context.Background(), C.TCPTimeout)
+			testCtx, cancel := context.WithTimeout(g.ctx, C.TCPTimeout)
 			defer cancel()
-			t, err := urltest.URLTest(ctx, g.link, p)
+			t, err := urltest.URLTest(testCtx, g.link, p)
 			if err != nil {
-				g.logger.Debug("outbound ", tag, " unavailable: ", err)
-				g.history.DeleteURLTestHistory(realTag)
+				g.logger.Debug("outbound ", tag, " unavailable (", TimeoutDelay, "ms): ", err)
+				// g.history.DeleteURLTestHistory(realTag)
+				t = TimeoutDelay
 			} else {
 				g.logger.Debug("outbound ", tag, " available: ", t, "ms")
-				g.history.StoreURLTestHistory(realTag, &urltest.History{
-					Time:  time.Now(),
-					Delay: t,
-				})
-				resultAccess.Lock()
-				result[tag] = t
-				resultAccess.Unlock()
 			}
+			g.history.StoreURLTestHistory(realTag, &urltest.History{
+				Time:  time.Now(),
+				Delay: t,
+			})
+			resultAccess.Lock()
+			result[tag] = t
+			g.performUpdateCheck()
+			resultAccess.Unlock()
+
 			return nil, nil
 		})
 	}
@@ -399,13 +438,73 @@ func (g *URLTestGroup) performUpdateCheck() {
 	var updated bool
 	if outbound, exists := g.Select(N.NetworkTCP); outbound != nil && (g.selectedOutboundTCP == nil || (exists && outbound != g.selectedOutboundTCP)) {
 		g.selectedOutboundTCP = outbound
+		g.tcpConnectionFailureCount.Reset()
 		updated = true
 	}
 	if outbound, exists := g.Select(N.NetworkUDP); outbound != nil && (g.selectedOutboundUDP == nil || (exists && outbound != g.selectedOutboundUDP)) {
 		g.selectedOutboundUDP = outbound
+		g.udpConnectionFailureCount.Reset()
 		updated = true
 	}
 	if updated {
 		g.interruptGroup.Interrupt(g.interruptExternalConnections)
 	}
+}
+
+type MinZeroAtomicInt64 struct {
+	access sync.Mutex
+	count  int64
+}
+
+func (m *MinZeroAtomicInt64) Increment() int64 {
+	m.access.Lock()
+	defer m.access.Unlock()
+	if m.count < 0 {
+		m.count = 0
+	}
+	m.count++
+	return m.count
+}
+
+func (m *MinZeroAtomicInt64) Decrement(useMutex bool) int64 {
+	if useMutex {
+		m.access.Lock()
+		defer m.access.Unlock()
+	}
+	if m.count > 0 {
+		m.count--
+	}
+	return m.count
+}
+
+func (m *MinZeroAtomicInt64) Get(useMutex bool) int64 {
+	if useMutex {
+		m.access.Lock()
+		defer m.access.Unlock()
+	}
+	return m.count
+}
+
+func (m *MinZeroAtomicInt64) Reset() int64 {
+	m.access.Lock()
+	defer m.access.Unlock()
+	m.count = 0
+	return m.count
+}
+func (m *MinZeroAtomicInt64) IncrementConditionReset(condition int64) bool {
+	m.access.Lock()
+	defer m.access.Unlock()
+	m.count++
+	if m.count >= condition {
+		m.count = 0
+		return true
+	}
+	return false
+}
+
+func outboundToString(outbound adapter.Outbound) string {
+	if outbound == nil {
+		return "<nil>"
+	}
+	return outbound.Tag()
 }

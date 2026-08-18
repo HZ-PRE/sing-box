@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/imkira/go-observer/v2"
 	"github.com/sagernet/sing/common"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
@@ -21,7 +22,7 @@ type History struct {
 type HistoryStorage struct {
 	access       sync.RWMutex
 	delayHistory map[string]*History
-	updateHook   chan<- struct{}
+	updateHook   observer.Property[int]
 }
 
 func NewHistoryStorage() *HistoryStorage {
@@ -30,7 +31,7 @@ func NewHistoryStorage() *HistoryStorage {
 	}
 }
 
-func (s *HistoryStorage) SetHook(hook chan<- struct{}) {
+func (s *HistoryStorage) SetHook(hook observer.Property[int]) {
 	s.updateHook = hook
 }
 
@@ -60,10 +61,11 @@ func (s *HistoryStorage) StoreURLTestHistory(tag string, history *History) {
 func (s *HistoryStorage) notifyUpdated() {
 	updateHook := s.updateHook
 	if updateHook != nil {
-		select {
-		case updateHook <- struct{}{}:
-		default:
-		}
+		updateHook.Update(1)
+		// select {
+		// case updateHook <- struct{}{}:
+		// default:
+		// }
 	}
 }
 

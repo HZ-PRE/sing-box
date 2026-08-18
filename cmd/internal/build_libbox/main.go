@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	_ "github.com/sagernet/gomobile"
 	"github.com/sagernet/sing-box/cmd/internal/build_shared"
 	"github.com/sagernet/sing-box/log"
-	_ "github.com/sagernet/gomobile"
 	"github.com/sagernet/sing/common/rw"
 )
 

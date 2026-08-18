@@ -61,7 +61,7 @@ func NewClient(ctx context.Context, dialer N.Dialer, serverAddr M.Socksaddr, opt
 		requestURL.Host = host
 	}
 	if headers.Get("User-Agent") == "" {
-		headers.Set("User-Agent", "Go-http-client/1.1")
+		headers.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
 	}
 	return &Client{
 		dialer,
@@ -126,4 +126,8 @@ func (c *Client) DialContext(ctx context.Context) (net.Conn, error) {
 	} else {
 		return &EarlyWebsocketConn{Client: c, ctx: ctx, create: make(chan struct{})}, nil
 	}
+}
+
+func (c *Client) Close() error {
+	return nil
 }

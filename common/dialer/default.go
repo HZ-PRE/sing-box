@@ -32,14 +32,20 @@ func NewDefault(router adapter.Router, options option.DialerOptions) (*DefaultDi
 	var dialer net.Dialer
 	var listener net.ListenConfig
 	if options.BindInterface != "" {
-		bindFunc := control.BindToInterface(router.InterfaceFinder(), options.BindInterface, -1)
+		var interfaceFinder control.InterfaceFinder
+		if router != nil {
+			interfaceFinder = router.InterfaceFinder()
+		} else {
+			interfaceFinder = control.NewDefaultInterfaceFinder()
+		}
+		bindFunc := control.BindToInterface(interfaceFinder, options.BindInterface, -1)
 		dialer.Control = control.Append(dialer.Control, bindFunc)
 		listener.Control = control.Append(listener.Control, bindFunc)
-	} else if router.AutoDetectInterface() {
+	} else if router != nil && router.AutoDetectInterface() {
 		bindFunc := router.AutoDetectInterfaceFunc()
 		dialer.Control = control.Append(dialer.Control, bindFunc)
 		listener.Control = control.Append(listener.Control, bindFunc)
-	} else if router.DefaultInterface() != "" {
+	} else if router != nil && router.DefaultInterface() != "" {
 		bindFunc := control.BindToInterface(router.InterfaceFinder(), router.DefaultInterface(), -1)
 		dialer.Control = control.Append(dialer.Control, bindFunc)
 		listener.Control = control.Append(listener.Control, bindFunc)
@@ -47,7 +53,7 @@ func NewDefault(router adapter.Router, options option.DialerOptions) (*DefaultDi
 	if options.RoutingMark != 0 {
 		dialer.Control = control.Append(dialer.Control, control.RoutingMark(options.RoutingMark))
 		listener.Control = control.Append(listener.Control, control.RoutingMark(options.RoutingMark))
-	} else if router.DefaultMark() != 0 {
+	} else if router != nil && router.DefaultMark() != 0 {
 		dialer.Control = control.Append(dialer.Control, control.RoutingMark(router.DefaultMark()))
 		listener.Control = control.Append(listener.Control, control.RoutingMark(router.DefaultMark()))
 	}
@@ -63,6 +69,9 @@ func NewDefault(router adapter.Router, options option.DialerOptions) (*DefaultDi
 	} else {
 		dialer.Timeout = C.TCPTimeout
 	}
+	// TODO: Add an option to customize the keep alive period
+	dialer.KeepAlive = C.TCPKeepAliveInitial
+	dialer.Control = control.Append(dialer.Control, control.SetKeepAlivePeriod(C.TCPKeepAliveInitial, C.TCPKeepAliveInterval))
 	var udpFragment bool
 	if options.UDPFragment != nil {
 		udpFragment = *options.UDPFragment
@@ -101,16 +110,39 @@ func NewDefault(router adapter.Router, options option.DialerOptions) (*DefaultDi
 		}
 		setMultiPathTCP(&dialer4)
 	}
+
+	var tlsFragment *TLSFragment = nil
+	if options.TLSFragment != nil && options.TLSFragment.Enabled {
+		tlsFragment = &TLSFragment{}
+		if options.TCPFastOpen {
+			return nil, E.New("TLS Fragmentation is not compatible with TCP Fast Open, set `tcp_fast_open` to `false` in your outbound if you intend to enable TLS fragmentation.")
+		}
+		tlsFragment.Enabled = true
+
+		sleep, err := option.Parse2IntRange(options.TLSFragment.Sleep)
+
+		if err != nil {
+			return nil, E.Cause(err, "invalid TLS fragment sleep period supplied")
+		}
+		tlsFragment.Sleep = sleep
+
+		size, err := option.Parse2IntRange(options.TLSFragment.Size)
+		if err != nil {
+			return nil, E.Cause(err, "invalid TLS fragment size supplied")
+		}
+		tlsFragment.Size = size
+
+	}
 	if options.IsWireGuardListener {
 		for _, controlFn := range wgControlFns {
 			listener.Control = control.Append(listener.Control, controlFn)
 		}
 	}
-	tcpDialer4, err := newTCPDialer(dialer4, options.TCPFastOpen)
+	tcpDialer4, err := newTCPDialer(dialer4, options.TCPFastOpen, tlsFragment)
 	if err != nil {
 		return nil, err
 	}
-	tcpDialer6, err := newTCPDialer(dialer6, options.TCPFastOpen)
+	tcpDialer6, err := newTCPDialer(dialer6, options.TCPFastOpen, tlsFragment)
 	if err != nil {
 		return nil, err
 	}
@@ -139,9 +171,9 @@ func (d *DefaultDialer) DialContext(ctx context.Context, network string, address
 		}
 	}
 	if !address.IsIPv6() {
-		return trackConn(DialSlowContext(&d.dialer4, ctx, network, address))
+		return trackConn(d.dialer4.DialContext(ctx, network, address))
 	} else {
-		return trackConn(DialSlowContext(&d.dialer6, ctx, network, address))
+		return trackConn(d.dialer6.DialContext(ctx, network, address))
 	}
 }
 

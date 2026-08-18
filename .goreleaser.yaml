@@ -48,8 +48,8 @@ builds:
       - with_clash_api
     env:
       - CGO_ENABLED=0
-      - GOROOT=/nix/store/cpfvjwc7d5hai3iar78h86iwnvgppjrg-go-1.20.14/share/go
-    gobinary: /nix/store/cpfvjwc7d5hai3iar78h86iwnvgppjrg-go-1.20.14/bin/go
+      - GOROOT={{ .Env.GOPATH }}/go1.20.14
+    gobinary: "{{ .Env.GOPATH }}/go1.20.14/bin/go"
     targets:
       - windows_amd64_v1
       - windows_386
@@ -113,7 +113,6 @@ nfpms:
     file_name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}{{ with .Mips }}_{{ . }}{{ end }}{{ if not (eq .Amd64 "v1") }}{{ .Amd64 }}{{ end }}'
     builds:
       - main
-    vendor: sagernet
     homepage: https://sing-box.sagernet.org/
     maintainer: nekohasekai <contact-git@sekai.icu>
     description: The universal proxy platform.
@@ -128,14 +127,16 @@ nfpms:
         dst: /etc/sing-box/config.json
         type: config
       - src: release/config/sing-box.service
-        dst: /etc/systemd/system/sing-box.service
+        dst: /usr/lib/systemd/system/sing-box.service
       - src: release/config/sing-box@.service
-        dst: /etc/systemd/system/sing-box@.service
+        dst: /usr/lib/systemd/system/sing-box@.service
       - src: LICENSE
         dst: /usr/share/licenses/sing-box/LICENSE
     deb:
       signature:
         key_file: "{{ .Env.NFPM_KEY_PATH }}"
+      fields:
+        Bugs: https://github.com/SagerNet/sing-box/issues
     rpm:
       signature:
         key_file: "{{ .Env.NFPM_KEY_PATH }}"

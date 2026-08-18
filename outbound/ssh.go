@@ -20,6 +20,7 @@ import (
 	E "github.com/sagernet/sing/common/exceptions"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
+	"github.com/sagernet/sing/common/uot"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -42,6 +43,7 @@ type SSH struct {
 	clientAccess      sync.Mutex
 	clientConn        net.Conn
 	client            *ssh.Client
+	uotClient         *uot.Client
 }
 
 func NewSSH(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options option.SSHOutboundOptions) (*SSH, error) {
@@ -107,6 +109,13 @@ func NewSSH(ctx context.Context, router adapter.Router, logger log.ContextLogger
 				return nil, E.New("parse host key ", key)
 			}
 			outbound.hostKey = append(outbound.hostKey, key)
+		}
+	}
+	uotOptions := common.PtrValueOrDefault(options.UDPOverTCP)
+	if uotOptions.Enabled {
+		outbound.uotClient = &uot.Client{
+			Dialer:  outbound,
+			Version: uotOptions.Version,
 		}
 	}
 	return outbound, nil
@@ -193,6 +202,19 @@ func (s *SSH) DialContext(ctx context.Context, network string, destination M.Soc
 	if err != nil {
 		return nil, err
 	}
+	switch N.NetworkName(network) {
+	case N.NetworkTCP:
+		s.logger.InfoContext(ctx, "outbound connection to ", destination)
+	case N.NetworkUDP:
+		if s.uotClient != nil {
+			s.logger.InfoContext(ctx, "outbound UoT connect packet connection to ", destination)
+			return s.uotClient.DialContext(ctx, network, destination)
+		}
+		s.logger.InfoContext(ctx, "outbound packet connection to ", destination)
+	default:
+		return nil, E.Extend(N.ErrUnknownNetwork, network)
+	}
+
 	return client.Dial(network, destination.String())
 }
 

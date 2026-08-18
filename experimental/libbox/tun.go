@@ -5,7 +5,7 @@ import (
 	"net/netip"
 
 	"github.com/sagernet/sing-box/option"
-	tun "github.com/sagernet/sing-tun"
+	"github.com/sagernet/sing-tun"
 	"github.com/sagernet/sing/common"
 	E "github.com/sagernet/sing/common/exceptions"
 )
@@ -28,6 +28,8 @@ type TunOptions interface {
 	IsHTTPProxyEnabled() bool
 	GetHTTPProxyServer() string
 	GetHTTPProxyServerPort() int32
+	GetHTTPProxyBypassDomain() StringIterator
+	GetHTTPProxyMatchDomain() StringIterator
 }
 
 type RoutePrefix struct {
@@ -155,4 +157,12 @@ func (o *tunOptions) GetHTTPProxyServer() string {
 
 func (o *tunOptions) GetHTTPProxyServerPort() int32 {
 	return int32(o.TunPlatformOptions.HTTPProxy.ServerPort)
+}
+
+func (o *tunOptions) GetHTTPProxyBypassDomain() StringIterator {
+	return newIterator(o.TunPlatformOptions.HTTPProxy.BypassDomain)
+}
+
+func (o *tunOptions) GetHTTPProxyMatchDomain() StringIterator {
+	return newIterator(o.TunPlatformOptions.HTTPProxy.MatchDomain)
 }
