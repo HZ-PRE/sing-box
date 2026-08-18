@@ -72,6 +72,32 @@ func NewDefault(router adapter.Router, options option.DialerOptions) (*DefaultDi
 	// TODO: Add an option to customize the keep alive period
 	dialer.KeepAlive = C.TCPKeepAliveInitial
 	dialer.Control = control.Append(dialer.Control, control.SetKeepAlivePeriod(C.TCPKeepAliveInitial, C.TCPKeepAliveInterval))
+	if options.TLSFragment.Enabled && options.TCPFastOpen {
+		return nil, E.New("TLS Fragmentation is not compatible with TCP Fast Open, set `tcp_fast_open` to `false` in your outbound if you intend to enable TLS fragmentation.")
+	}
+	var tlsFragment TLSFragment
+	if options.TLSFragment.Enabled {
+		tlsFragment.Enabled = true
+
+		sleep, err := option.Parse2IntRange(options.TLSFragment.Sleep)
+		if err != nil {
+			return nil, E.Cause(err, "missing or invalid value supplied as TLS fragment `sleep` option")
+		}
+		if sleep.Max > 1000 {
+			return nil, E.New("invalid range supplied as TLS fragment `sleep` option! set to '0' to disable sleeps or set to range [0,1000]")
+		}
+		tlsFragment.Sleep = sleep
+
+		size, err := option.Parse2IntRange(options.TLSFragment.Size)
+		if err != nil {
+			return nil, E.Cause(err, "missing or invalid value supplied as TLS fragment `size` option")
+		}
+		if size.Min <= 0 || size.Max > 256 {
+			return nil, E.New("invalid range supplied as TLS fragment `size` option! valid range: [1,256]")
+		}
+		tlsFragment.Size = size
+
+	}
 	var udpFragment bool
 	if options.UDPFragment != nil {
 		udpFragment = *options.UDPFragment
@@ -109,29 +135,6 @@ func NewDefault(router adapter.Router, options option.DialerOptions) (*DefaultDi
 			return nil, E.New("MultiPath TCP requires go1.21, please recompile your binary.")
 		}
 		setMultiPathTCP(&dialer4)
-	}
-
-	var tlsFragment *TLSFragment = nil
-	if options.TLSFragment != nil && options.TLSFragment.Enabled {
-		tlsFragment = &TLSFragment{}
-		if options.TCPFastOpen {
-			return nil, E.New("TLS Fragmentation is not compatible with TCP Fast Open, set `tcp_fast_open` to `false` in your outbound if you intend to enable TLS fragmentation.")
-		}
-		tlsFragment.Enabled = true
-
-		sleep, err := option.Parse2IntRange(options.TLSFragment.Sleep)
-
-		if err != nil {
-			return nil, E.Cause(err, "invalid TLS fragment sleep period supplied")
-		}
-		tlsFragment.Sleep = sleep
-
-		size, err := option.Parse2IntRange(options.TLSFragment.Size)
-		if err != nil {
-			return nil, E.Cause(err, "invalid TLS fragment size supplied")
-		}
-		tlsFragment.Size = size
-
 	}
 	if options.IsWireGuardListener {
 		for _, controlFn := range wgControlFns {

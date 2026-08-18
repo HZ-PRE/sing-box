@@ -11,7 +11,7 @@ import (
 )
 
 func (d *ExtendedTCPDialer) DialContext(ctx context.Context, network string, destination M.Socksaddr) (net.Conn, error) {
-	if d.TLSFragment == nil || !d.TLSFragment.Enabled || N.NetworkName(network) != N.NetworkTCP {
+	if !d.TLSFragment.Enabled || N.NetworkName(network) != N.NetworkTCP {
 		switch N.NetworkName(network) {
 		case N.NetworkTCP, N.NetworkUDP:
 			return d.Dialer.DialContext(ctx, network, destination.String())

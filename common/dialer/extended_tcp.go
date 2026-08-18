@@ -6,20 +6,20 @@ import (
 	"context"
 	"net"
 
+	"github.com/metacubex/tfo-go"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
-	"github.com/sagernet/tfo-go"
 )
 
 // Custom TCP dialer with extra features such as "TCP Fast Open" or "TLS Fragmentation"
 type ExtendedTCPDialer struct {
 	net.Dialer
 	DisableTFO  bool
-	TLSFragment *TLSFragment
+	TLSFragment TLSFragment
 }
 
 func (d *ExtendedTCPDialer) DialContext(ctx context.Context, network string, destination M.Socksaddr) (net.Conn, error) {
-	if (d.DisableTFO && !(d.TLSFragment != nil && d.TLSFragment.Enabled)) || N.NetworkName(network) != N.NetworkTCP {
+	if (d.DisableTFO && !d.TLSFragment.Enabled) || N.NetworkName(network) != N.NetworkTCP {
 		switch N.NetworkName(network) {
 		case N.NetworkTCP, N.NetworkUDP:
 			return d.Dialer.DialContext(ctx, network, destination.String())
@@ -27,11 +27,11 @@ func (d *ExtendedTCPDialer) DialContext(ctx context.Context, network string, des
 			return d.Dialer.DialContext(ctx, network, destination.AddrString())
 		}
 	}
-	// Create a TLS-Fragmented dialer
-	if d.TLSFragment != nil && d.TLSFragment.Enabled {
+	// Create a fragment dialer
+	if d.TLSFragment.Enabled {
 		fragmentConn := &fragmentConn{
 			dialer:      d.Dialer,
-			fragment:    *d.TLSFragment,
+			fragment:    d.TLSFragment,
 			network:     network,
 			destination: destination,
 		}

@@ -10,22 +10,22 @@ import (
 	"sync"
 	"time"
 
+	"github.com/metacubex/tfo-go"
 	"github.com/sagernet/sing/common"
 	"github.com/sagernet/sing/common/bufio"
 	E "github.com/sagernet/sing/common/exceptions"
 	M "github.com/sagernet/sing/common/metadata"
-	"github.com/sagernet/tfo-go"
 )
 
 type slowOpenConn struct {
-	dialer      *tfo.Dialer
 	ctx         context.Context
-	network     string
-	destination M.Socksaddr
 	conn        net.Conn
-	create      chan struct{}
-	access      sync.Mutex
 	err         error
+	dialer      *tfo.Dialer
+	create      chan struct{}
+	destination M.Socksaddr
+	network     string
+	access      sync.Mutex
 }
 
 func (c *slowOpenConn) Read(b []byte) (n int, err error) {

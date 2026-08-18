@@ -2,8 +2,6 @@ package outbound
 
 import (
 	"context"
-	"fmt"
-	"io"
 	"net"
 
 	"github.com/sagernet/sing-box/adapter"
@@ -13,7 +11,7 @@ import (
 	"github.com/sagernet/sing-box/log"
 	"github.com/sagernet/sing-box/option"
 	"github.com/sagernet/sing-box/transport/sip003"
-	shadowsocks "github.com/sagernet/sing-shadowsocks2"
+	"github.com/sagernet/sing-shadowsocks2"
 	"github.com/sagernet/sing/common"
 	"github.com/sagernet/sing/common/bufio"
 	E "github.com/sagernet/sing/common/exceptions"
@@ -28,7 +26,6 @@ type Shadowsocks struct {
 	myOutboundAdapter
 	dialer          N.Dialer
 	method          shadowsocks.Method
-	userId          string
 	serverAddr      M.Socksaddr
 	plugin          sip003.Plugin
 	uotClient       *uot.Client
@@ -57,7 +54,6 @@ func NewShadowsocks(ctx context.Context, router adapter.Router, logger log.Conte
 		},
 		dialer:     outboundDialer,
 		method:     method,
-		userId:     options.UserId,
 		serverAddr: options.ServerOptions.Build(),
 	}
 	if options.Plugin != "" {
@@ -80,67 +76,6 @@ func NewShadowsocks(ctx context.Context, router adapter.Router, logger log.Conte
 		}
 	}
 	return outbound, nil
-}
-
-type userIDPacketConn struct {
-	net.PacketConn
-	userId string
-}
-
-func buildUserIDHeader(userId string) ([]byte, error) {
-	if userId == "" {
-		return nil, nil
-	}
-	if len(userId) > 255 {
-		return nil, fmt.Errorf("userId too long: %d", len(userId))
-	}
-
-	header := make([]byte, 2+len(userId))
-	header[0] = 0xAA
-	header[1] = byte(len(userId))
-	copy(header[2:], userId)
-	return header, nil
-}
-
-func writeAll(conn net.Conn, b []byte) error {
-	for len(b) > 0 {
-		n, err := conn.Write(b)
-		if err != nil {
-			return err
-		}
-		if n == 0 {
-			return io.ErrShortWrite
-		}
-		b = b[n:]
-	}
-	return nil
-}
-func (c *userIDPacketConn) WriteTo(b []byte, addr net.Addr) (int, error) {
-	header, err := buildUserIDHeader(c.userId)
-	if err != nil {
-		return 0, err
-	}
-	if len(header) == 0 {
-		return c.PacketConn.WriteTo(b, addr)
-	}
-
-	packet := make([]byte, len(header)+len(b))
-	copy(packet, header)
-	copy(packet[len(header):], b)
-
-	n, err := c.PacketConn.WriteTo(packet, addr)
-	if err != nil {
-		return 0, err
-	}
-	if n < len(header) {
-		return 0, io.ErrShortWrite
-	}
-
-	payloadN := n - len(header)
-	if payloadN > len(b) {
-		payloadN = len(b)
-	}
-	return payloadN, nil
 }
 
 func (h *Shadowsocks) DialContext(ctx context.Context, network string, destination M.Socksaddr) (net.Conn, error) {
@@ -229,31 +164,13 @@ func (h *shadowsocksDialer) DialContext(ctx context.Context, network string, des
 		if err != nil {
 			return nil, err
 		}
-		header, err := buildUserIDHeader(h.userId)
-		if err != nil {
-			outConn.Close()
-			return nil, err
-		}
-
-		// 当前语义：在 SS 流开始前明文写入 userId header
-		if len(header) > 0 {
-			err = writeAll(outConn, header)
-			if err != nil {
-				outConn.Close()
-				return nil, err
-			}
-		}
 		return h.method.DialEarlyConn(outConn, destination), nil
 	case N.NetworkUDP:
 		outConn, err := h.dialer.DialContext(ctx, N.NetworkUDP, h.serverAddr)
 		if err != nil {
 			return nil, err
 		}
-		conn := h.method.DialPacketConn(outConn)
-		return bufio.NewBindPacketConn(&userIDPacketConn{
-			PacketConn: conn,
-			userId:     h.userId,
-		}, destination), nil
+		return bufio.NewBindPacketConn(h.method.DialPacketConn(outConn), destination), nil
 	default:
 		return nil, E.Extend(N.ErrUnknownNetwork, network)
 	}
@@ -267,9 +184,5 @@ func (h *shadowsocksDialer) ListenPacket(ctx context.Context, destination M.Sock
 	if err != nil {
 		return nil, err
 	}
-	conn := h.method.DialPacketConn(outConn)
-	return &userIDPacketConn{
-		PacketConn: conn,
-		userId:     h.userId,
-	}, nil
+	return h.method.DialPacketConn(outConn), nil
 }
