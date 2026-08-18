@@ -6,8 +6,8 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/HZ-PRE/sing-box/common/conntrack"
-	"github.com/HZ-PRE/sing-box/experimental/clashapi"
+	"github.com/sagernet/sing-box/common/conntrack"
+	"github.com/sagernet/sing-box/experimental/clashapi"
 	E "github.com/sagernet/sing/common/exceptions"
 	"github.com/sagernet/sing/common/memory"
 )

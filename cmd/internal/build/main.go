@@ -5,8 +5,8 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/HZ-PRE/sing-box/cmd/internal/build_shared"
-	"github.com/HZ-PRE/sing-box/log"
+	"github.com/sagernet/sing-box/cmd/internal/build_shared"
+	"github.com/sagernet/sing-box/log"
 )
 
 func main() {

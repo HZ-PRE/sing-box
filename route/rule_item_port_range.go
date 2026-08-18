@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/HZ-PRE/sing-box/adapter"
+	"github.com/sagernet/sing-box/adapter"
 	E "github.com/sagernet/sing/common/exceptions"
 )
 

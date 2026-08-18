@@ -2,9 +2,9 @@ module test
 
 go 1.20
 
-require github.com/HZ-PRE/sing-box v0.0.0
+require github.com/sagernet/sing-box v0.0.0
 
-replace github.com/HZ-PRE/sing-box => ../
+replace github.com/sagernet/sing-box => ../
 
 require (
 	github.com/docker/docker v24.0.7+incompatible

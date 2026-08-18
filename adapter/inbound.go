@@ -5,8 +5,8 @@ import (
 	"net"
 	"net/netip"
 
-	"github.com/HZ-PRE/sing-box/common/process"
-	"github.com/HZ-PRE/sing-box/option"
+	"github.com/sagernet/sing-box/common/process"
+	"github.com/sagernet/sing-box/option"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
 )

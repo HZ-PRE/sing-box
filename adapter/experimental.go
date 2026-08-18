@@ -8,7 +8,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/HZ-PRE/sing-box/common/urltest"
+	"github.com/sagernet/sing-box/common/urltest"
 	N "github.com/sagernet/sing/common/network"
 	"github.com/sagernet/sing/common/rw"
 )

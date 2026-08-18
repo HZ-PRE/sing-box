@@ -10,8 +10,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/HZ-PRE/sing-box/log"
-	"github.com/HZ-PRE/sing-box/option"
+	"github.com/sagernet/sing-box/log"
+	"github.com/sagernet/sing-box/option"
 	cftls "github.com/sagernet/cloudflare-tls"
 	E "github.com/sagernet/sing/common/exceptions"
 	"github.com/sagernet/sing/common/ntp"

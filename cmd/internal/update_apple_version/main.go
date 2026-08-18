@@ -6,8 +6,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/HZ-PRE/sing-box/cmd/internal/build_shared"
-	"github.com/HZ-PRE/sing-box/log"
+	"github.com/sagernet/sing-box/cmd/internal/build_shared"
+	"github.com/sagernet/sing-box/log"
 	"github.com/sagernet/sing/common"
 
 	"howett.net/plist"
