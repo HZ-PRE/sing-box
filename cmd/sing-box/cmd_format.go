@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/HZ-PRE/sing-box/log"
+	"github.com/sagernet/sing-box/log"
 	E "github.com/sagernet/sing/common/exceptions"
 	"github.com/sagernet/sing/common/json"
 	"github.com/sagernet/sing/common/json/badjson"
@@ -38,7 +38,7 @@ func format() error {
 		return err
 	}
 	for _, optionsEntry := range optionsList {
-		optionsEntry.options, err = badjson.Omitempty(globalCtx, optionsEntry.options)
+		optionsEntry.options, err = badjson.Omitempty(optionsEntry.options)
 		if err != nil {
 			return err
 		}

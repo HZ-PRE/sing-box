@@ -5,21 +5,20 @@ import (
 	"encoding/binary"
 	"os"
 
-	"github.com/HZ-PRE/sing-box/adapter"
-	C "github.com/HZ-PRE/sing-box/constant"
+	"github.com/sagernet/sing-box/adapter"
+	C "github.com/sagernet/sing-box/constant"
 )
 
-func STUNMessage(_ context.Context, metadata *adapter.InboundContext, packet []byte) error {
+func STUNMessage(ctx context.Context, packet []byte) (*adapter.InboundContext, error) {
 	pLen := len(packet)
 	if pLen < 20 {
-		return os.ErrInvalid
+		return nil, os.ErrInvalid
 	}
 	if binary.BigEndian.Uint32(packet[4:8]) != 0x2112A442 {
-		return os.ErrInvalid
+		return nil, os.ErrInvalid
 	}
 	if len(packet) < 20+int(binary.BigEndian.Uint16(packet[2:4])) {
-		return os.ErrInvalid
+		return nil, os.ErrInvalid
 	}
-	metadata.Protocol = C.ProtocolSTUN
-	return nil
+	return &adapter.InboundContext{Protocol: C.ProtocolSTUN}, nil
 }

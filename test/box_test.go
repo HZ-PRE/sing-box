@@ -11,10 +11,9 @@ import (
 
 	"github.com/sagernet/quic-go"
 	"github.com/sagernet/quic-go/http3"
-	box "github.com/HZ-PRE/sing-box"
-	C "github.com/HZ-PRE/sing-box/constant"
-	"github.com/HZ-PRE/sing-box/include"
-	"github.com/HZ-PRE/sing-box/option"
+	"github.com/sagernet/sing-box"
+	C "github.com/sagernet/sing-box/constant"
+	"github.com/sagernet/sing-box/option"
 	"github.com/sagernet/sing/common/bufio"
 	"github.com/sagernet/sing/common/debug"
 	M "github.com/sagernet/sing/common/metadata"
@@ -29,12 +28,6 @@ func TestMain(m *testing.M) {
 	goleak.VerifyTestMain(m)
 }
 
-var globalCtx context.Context
-
-func init() {
-	globalCtx = box.Context(context.Background(), include.InboundRegistry(), include.OutboundRegistry(), include.EndpointRegistry())
-}
-
 func startInstance(t *testing.T, options option.Options) *box.Box {
 	if debug.Enabled {
 		options.Log = &option.LogOptions{
@@ -45,7 +38,8 @@ func startInstance(t *testing.T, options option.Options) *box.Box {
 			Level: "warning",
 		}
 	}
-	ctx, cancel := context.WithCancel(globalCtx)
+	// ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 	var instance *box.Box
 	var err error
 	for retry := 0; retry < 3; retry++ {
@@ -119,7 +113,7 @@ func testSuitLargeUDP(t *testing.T, clientPort uint16, testPort uint16) {
 	require.NoError(t, testPingPongWithPacketConn(t, testPort, dialUDP))
 	require.NoError(t, testLargeDataWithConn(t, testPort, dialTCP))
 	require.NoError(t, testLargeDataWithPacketConn(t, testPort, dialUDP))
-	require.NoError(t, testLargeDataWithPacketConnSize(t, testPort, 4096, dialUDP))
+	require.NoError(t, testLargeDataWithPacketConnSize(t, testPort, 5000, dialUDP))
 }
 
 func testTCP(t *testing.T, clientPort uint16, testPort uint16) {

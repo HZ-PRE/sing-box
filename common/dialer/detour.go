@@ -5,22 +5,22 @@ import (
 	"net"
 	"sync"
 
-	"github.com/HZ-PRE/sing-box/adapter"
+	"github.com/sagernet/sing-box/adapter"
 	E "github.com/sagernet/sing/common/exceptions"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
 )
 
 type DetourDialer struct {
-	outboundManager adapter.OutboundManager
-	detour          string
-	dialer          N.Dialer
-	initOnce        sync.Once
-	initErr         error
+	router   adapter.Router
+	detour   string
+	dialer   N.Dialer
+	initOnce sync.Once
+	initErr  error
 }
 
-func NewDetour(outboundManager adapter.OutboundManager, detour string) N.Dialer {
-	return &DetourDialer{outboundManager: outboundManager, detour: detour}
+func NewDetour(router adapter.Router, detour string) N.Dialer {
+	return &DetourDialer{router: router, detour: detour}
 }
 
 func (d *DetourDialer) Start() error {
@@ -31,7 +31,7 @@ func (d *DetourDialer) Start() error {
 func (d *DetourDialer) Dialer() (N.Dialer, error) {
 	d.initOnce.Do(func() {
 		var loaded bool
-		d.dialer, loaded = d.outboundManager.Outbound(d.detour)
+		d.dialer, loaded = d.router.Outbound(d.detour)
 		if !loaded {
 			d.initErr = E.New("outbound detour not found: ", d.detour)
 		}

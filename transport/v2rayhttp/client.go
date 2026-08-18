@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/HZ-PRE/sing-box/adapter"
-	"github.com/HZ-PRE/sing-box/common/tls"
-	"github.com/HZ-PRE/sing-box/option"
+	"github.com/sagernet/sing-box/adapter"
+	"github.com/sagernet/sing-box/common/tls"
+	"github.com/sagernet/sing-box/option"
 	E "github.com/sagernet/sing/common/exceptions"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
@@ -146,7 +146,7 @@ func (c *Client) dialHTTP2(ctx context.Context) (net.Conn, error) {
 			conn.Setup(nil, err)
 		} else if response.StatusCode != 200 {
 			response.Body.Close()
-			conn.Setup(nil, E.New("v2ray-http: unexpected status: ", response.Status))
+			conn.Setup(nil, E.New("unexpected status: ", response.Status))
 		} else {
 			conn.Setup(response.Body, nil)
 		}
@@ -155,6 +155,6 @@ func (c *Client) dialHTTP2(ctx context.Context) (net.Conn, error) {
 }
 
 func (c *Client) Close() error {
-	c.transport = ResetTransport(c.transport)
+	CloseIdleConnections(c.transport)
 	return nil
 }

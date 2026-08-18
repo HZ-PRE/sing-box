@@ -4,10 +4,10 @@ import (
 	"io"
 	"os"
 
-	"github.com/HZ-PRE/sing-box/common/geosite"
-	C "github.com/HZ-PRE/sing-box/constant"
-	"github.com/HZ-PRE/sing-box/log"
-	"github.com/HZ-PRE/sing-box/option"
+	"github.com/sagernet/sing-box/common/geosite"
+	C "github.com/sagernet/sing-box/constant"
+	"github.com/sagernet/sing-box/log"
+	"github.com/sagernet/sing-box/option"
 	"github.com/sagernet/sing/common/json"
 
 	"github.com/spf13/cobra"
@@ -70,7 +70,7 @@ func geositeExport(category string) error {
 	headlessRule.DomainKeyword = defaultRule.DomainKeyword
 	headlessRule.DomainRegex = defaultRule.DomainRegex
 	var plainRuleSet option.PlainRuleSetCompat
-	plainRuleSet.Version = C.RuleSetVersion2
+	plainRuleSet.Version = C.RuleSetVersion1
 	plainRuleSet.Options.Rules = []option.HeadlessRule{
 		{
 			Type:           C.RuleTypeDefault,

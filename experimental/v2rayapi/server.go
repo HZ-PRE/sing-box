@@ -5,10 +5,10 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/HZ-PRE/sing-box/adapter"
-	"github.com/HZ-PRE/sing-box/experimental"
-	"github.com/HZ-PRE/sing-box/log"
-	"github.com/HZ-PRE/sing-box/option"
+	"github.com/sagernet/sing-box/adapter"
+	"github.com/sagernet/sing-box/experimental"
+	"github.com/sagernet/sing-box/log"
+	"github.com/sagernet/sing-box/option"
 	"github.com/sagernet/sing/common"
 
 	"google.golang.org/grpc"
@@ -44,14 +44,7 @@ func NewServer(logger log.Logger, options option.V2RayAPIOptions) (adapter.V2Ray
 	return server, nil
 }
 
-func (s *Server) Name() string {
-	return "v2ray server"
-}
-
-func (s *Server) Start(stage adapter.StartStage) error {
-	if stage != adapter.StartStatePostStart {
-		return nil
-	}
+func (s *Server) Start() error {
 	listener, err := net.Listen("tcp", s.listen)
 	if err != nil {
 		return err
@@ -77,6 +70,6 @@ func (s *Server) Close() error {
 	)
 }
 
-func (s *Server) StatsService() adapter.ConnectionTracker {
+func (s *Server) StatsService() adapter.V2RayStatsService {
 	return s.statsService
 }

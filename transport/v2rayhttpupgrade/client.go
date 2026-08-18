@@ -8,9 +8,9 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/HZ-PRE/sing-box/adapter"
-	"github.com/HZ-PRE/sing-box/common/tls"
-	"github.com/HZ-PRE/sing-box/option"
+	"github.com/sagernet/sing-box/adapter"
+	"github.com/sagernet/sing-box/common/tls"
+	"github.com/sagernet/sing-box/option"
 	"github.com/sagernet/sing/common/buf"
 	"github.com/sagernet/sing/common/bufio"
 	E "github.com/sagernet/sing/common/exceptions"
@@ -104,7 +104,7 @@ func (c *Client) DialContext(ctx context.Context) (net.Conn, error) {
 	if response.StatusCode != 101 ||
 		!strings.EqualFold(response.Header.Get("Connection"), "upgrade") ||
 		!strings.EqualFold(response.Header.Get("Upgrade"), "websocket") {
-		return nil, E.New("v2ray-http-upgrade: unexpected status: ", response.Status)
+		return nil, E.New("unexpected status: ", response.Status)
 	}
 	if bufReader.Buffered() > 0 {
 		buffer := buf.NewSize(bufReader.Buffered())
@@ -115,8 +115,4 @@ func (c *Client) DialContext(ctx context.Context) (net.Conn, error) {
 		conn = bufio.NewCachedConn(conn, buffer)
 	}
 	return conn, nil
-}
-
-func (c *Client) Close() error {
-	return nil
 }

@@ -3,7 +3,7 @@ package clashapi
 import (
 	"net/http"
 
-	"github.com/HZ-PRE/sing-box/adapter"
+	"github.com/sagernet/sing-box/adapter"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/render"
@@ -30,9 +30,10 @@ func getRules(router adapter.Router) func(w http.ResponseWriter, r *http.Request
 			rules = append(rules, Rule{
 				Type:    rule.Type(),
 				Payload: rule.String(),
-				Proxy:   rule.Action().String(),
+				Proxy:   rule.Outbound(),
 			})
 		}
+
 		render.JSON(w, r, render.M{
 			"rules": rules,
 		})

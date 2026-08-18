@@ -1,12 +1,3 @@
----
-icon: material/new-box
----
-
-!!! quote "sing-box 1.11.0 中的更改"
-
-    :material-plus: [server_ports](#server_ports)  
-    :material-plus: [hop_interval](#hop_interval)
-
 ### 结构
 
 ```json
@@ -16,10 +7,6 @@ icon: material/new-box
 
   "server": "127.0.0.1",
   "server_port": 1080,
-  "server_ports": [
-    "2080:3000"
-  ],
-  "hop_interval": "",
   "up_mbps": 100,
   "down_mbps": 100,
   "obfs": {
@@ -34,10 +21,6 @@ icon: material/new-box
   ... // 拨号字段
 }
 ```
-
-!!! note ""
-
-    当内容只有一项时，可以忽略 JSON 数组 [] 标签
 
 !!! warning "与官方 Hysteria2 的区别"
 
@@ -58,24 +41,6 @@ icon: material/new-box
 ==必填==
 
 服务器端口。
-
-如果设置了 `server_ports`，则忽略此项。
-
-#### server_ports
-
-!!! question "自 sing-box 1.11.0 起"
-
-服务器端口范围列表。
-
-与 `server_port` 冲突。
-
-#### hop_interval
-
-!!! question "自 sing-box 1.11.0 起"
-
-端口跳跃间隔。
-
-默认使用 `30s`。
 
 #### up_mbps, down_mbps
 

@@ -4,10 +4,8 @@ import (
 	"net/netip"
 	"testing"
 
-	C "github.com/HZ-PRE/sing-box/constant"
-	"github.com/HZ-PRE/sing-box/option"
-	"github.com/sagernet/sing/common"
-	"github.com/sagernet/sing/common/json/badoption"
+	C "github.com/sagernet/sing-box/constant"
+	"github.com/sagernet/sing-box/option"
 )
 
 func TestShadowsocksObfs(t *testing.T) {
@@ -38,9 +36,9 @@ func testShadowsocksPlugin(t *testing.T, name string, opts string, args string) 
 		Inbounds: []option.Inbound{
 			{
 				Type: C.TypeMixed,
-				Options: &option.HTTPMixedInboundOptions{
+				MixedOptions: option.HTTPMixedInboundOptions{
 					ListenOptions: option.ListenOptions{
-						Listen:     common.Ptr(badoption.Addr(netip.IPv4Unspecified())),
+						Listen:     option.NewListenAddress(netip.IPv4Unspecified()),
 						ListenPort: clientPort,
 					},
 				},
@@ -49,7 +47,7 @@ func testShadowsocksPlugin(t *testing.T, name string, opts string, args string) 
 		Outbounds: []option.Outbound{
 			{
 				Type: C.TypeShadowsocks,
-				Options: &option.ShadowsocksOutboundOptions{
+				ShadowsocksOptions: option.ShadowsocksOutboundOptions{
 					ServerOptions: option.ServerOptions{
 						Server:     "127.0.0.1",
 						ServerPort: serverPort,

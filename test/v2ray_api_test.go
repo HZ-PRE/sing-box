@@ -1,16 +1,13 @@
 package main
 
-/*
 import (
 	"context"
 	"net/netip"
 	"testing"
 
-	C "github.com/HZ-PRE/sing-box/constant"
-	"github.com/HZ-PRE/sing-box/experimental/v2rayapi"
-	"github.com/HZ-PRE/sing-box/option"
-	"github.com/sagernet/sing/common"
-	"github.com/sagernet/sing/common/json/badoption"
+	C "github.com/sagernet/sing-box/constant"
+	"github.com/sagernet/sing-box/experimental/v2rayapi"
+	"github.com/sagernet/sing-box/option"
 
 	"github.com/stretchr/testify/require"
 )
@@ -21,9 +18,9 @@ func TestV2RayAPI(t *testing.T) {
 			{
 				Type: C.TypeMixed,
 				Tag:  "in",
-				Options: &option.HTTPMixedInboundOptions{
+				MixedOptions: option.HTTPMixedInboundOptions{
 					ListenOptions: option.ListenOptions{
-						Listen:     common.Ptr(badoption.Addr(netip.IPv4Unspecified())),
+						Listen:     option.NewListenAddress(netip.IPv4Unspecified()),
 						ListenPort: clientPort,
 					},
 				},
@@ -57,4 +54,3 @@ func TestV2RayAPI(t *testing.T) {
 		require.Equal(t, count, stat.Value)
 	}
 }
-*/

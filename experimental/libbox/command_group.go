@@ -1,19 +1,48 @@
 package libbox
 
 import (
-	"bufio"
 	"encoding/binary"
 	"io"
 	"net"
 	"time"
 
-	"github.com/HZ-PRE/sing-box/adapter"
-	"github.com/HZ-PRE/sing-box/common/urltest"
-	"github.com/HZ-PRE/sing-box/protocol/group"
+	"github.com/sagernet/sing-box/adapter"
+	"github.com/sagernet/sing-box/common/urltest"
+	"github.com/sagernet/sing-box/outbound"
 	E "github.com/sagernet/sing/common/exceptions"
-	"github.com/sagernet/sing/common/varbin"
+	"github.com/sagernet/sing/common/rw"
 	"github.com/sagernet/sing/service"
 )
+
+type OutboundGroup struct {
+	Tag        string
+	Type       string
+	Selectable bool
+	Selected   string
+	IsExpand   bool
+	items      []*OutboundGroupItem
+}
+
+func (g *OutboundGroup) GetItems() OutboundGroupItemIterator {
+	return newIterator(g.items)
+}
+
+type OutboundGroupIterator interface {
+	Next() *OutboundGroup
+	HasNext() bool
+}
+
+type OutboundGroupItem struct {
+	Tag          string
+	Type         string
+	URLTestTime  int64
+	URLTestDelay int32
+}
+
+type OutboundGroupItemIterator interface {
+	Next() *OutboundGroupItem
+	HasNext() bool
+}
 
 func (c *CommandClient) handleGroupConn(conn net.Conn) {
 	defer conn.Close()
@@ -37,23 +66,18 @@ func (s *CommandServer) handleGroupConn(conn net.Conn) error {
 	ticker := time.NewTicker(time.Duration(interval))
 	defer ticker.Stop()
 	ctx := connKeepAlive(conn)
-	writer := bufio.NewWriter(conn)
 	for {
 		service := s.service
 		if service != nil {
-			err = writeGroups(writer, service)
+			err := writeGroups(conn, service)
 			if err != nil {
 				return err
 			}
 		} else {
-			err = binary.Write(writer, binary.BigEndian, uint16(0))
+			err := binary.Write(conn, binary.BigEndian, uint16(0))
 			if err != nil {
 				return err
 			}
-		}
-		err = writer.Flush()
-		if err != nil {
-			return err
 		}
 		select {
 		case <-ctx.Done():
@@ -68,40 +92,73 @@ func (s *CommandServer) handleGroupConn(conn net.Conn) error {
 	}
 }
 
-type OutboundGroup struct {
-	Tag        string
-	Type       string
-	Selectable bool
-	Selected   string
-	IsExpand   bool
-	ItemList   []*OutboundGroupItem
-}
-
-func (g *OutboundGroup) GetItems() OutboundGroupItemIterator {
-	return newIterator(g.ItemList)
-}
-
-type OutboundGroupIterator interface {
-	Next() *OutboundGroup
-	HasNext() bool
-}
-
-type OutboundGroupItem struct {
-	Tag          string
-	Type         string
-	URLTestTime  int64
-	URLTestDelay int32
-}
-
-type OutboundGroupItemIterator interface {
-	Next() *OutboundGroupItem
-	HasNext() bool
-}
-
 func readGroups(reader io.Reader) (OutboundGroupIterator, error) {
-	groups, err := varbin.ReadValue[[]*OutboundGroup](reader, binary.BigEndian)
+	var groupLength uint16
+	err := binary.Read(reader, binary.BigEndian, &groupLength)
 	if err != nil {
 		return nil, err
+	}
+
+	groups := make([]*OutboundGroup, 0, groupLength)
+	for i := 0; i < int(groupLength); i++ {
+		var group OutboundGroup
+		group.Tag, err = rw.ReadVString(reader)
+		if err != nil {
+			return nil, err
+		}
+
+		group.Type, err = rw.ReadVString(reader)
+		if err != nil {
+			return nil, err
+		}
+
+		err = binary.Read(reader, binary.BigEndian, &group.Selectable)
+		if err != nil {
+			return nil, err
+		}
+
+		group.Selected, err = rw.ReadVString(reader)
+		if err != nil {
+			return nil, err
+		}
+
+		err = binary.Read(reader, binary.BigEndian, &group.IsExpand)
+		if err != nil {
+			return nil, err
+		}
+
+		var itemLength uint16
+		err = binary.Read(reader, binary.BigEndian, &itemLength)
+		if err != nil {
+			return nil, err
+		}
+
+		group.items = make([]*OutboundGroupItem, itemLength)
+		for j := 0; j < int(itemLength); j++ {
+			var item OutboundGroupItem
+			item.Tag, err = rw.ReadVString(reader)
+			if err != nil {
+				return nil, err
+			}
+
+			item.Type, err = rw.ReadVString(reader)
+			if err != nil {
+				return nil, err
+			}
+
+			err = binary.Read(reader, binary.BigEndian, &item.URLTestTime)
+			if err != nil {
+				return nil, err
+			}
+
+			err = binary.Read(reader, binary.BigEndian, &item.URLTestDelay)
+			if err != nil {
+				return nil, err
+			}
+
+			group.items[j] = &item
+		}
+		groups = append(groups, &group)
 	}
 	return newIterator(groups), nil
 }
@@ -109,7 +166,7 @@ func readGroups(reader io.Reader) (OutboundGroupIterator, error) {
 func writeGroups(writer io.Writer, boxService *BoxService) error {
 	historyStorage := service.PtrFromContext[urltest.HistoryStorage](boxService.ctx)
 	cacheFile := service.FromContext[adapter.CacheFile](boxService.ctx)
-	outbounds := boxService.instance.Outbound().Outbounds()
+	outbounds := boxService.instance.Router().Outbounds()
 	var iGroups []adapter.OutboundGroup
 	for _, it := range outbounds {
 		if group, isGroup := it.(adapter.OutboundGroup); isGroup {
@@ -118,19 +175,19 @@ func writeGroups(writer io.Writer, boxService *BoxService) error {
 	}
 	var groups []OutboundGroup
 	for _, iGroup := range iGroups {
-		var outboundGroup OutboundGroup
-		outboundGroup.Tag = iGroup.Tag()
-		outboundGroup.Type = iGroup.Type()
-		_, outboundGroup.Selectable = iGroup.(*group.Selector)
-		outboundGroup.Selected = iGroup.Now()
+		var group OutboundGroup
+		group.Tag = iGroup.Tag()
+		group.Type = iGroup.Type()
+		_, group.Selectable = iGroup.(*outbound.Selector)
+		group.Selected = iGroup.Now()
 		if cacheFile != nil {
-			if isExpand, loaded := cacheFile.LoadGroupExpand(outboundGroup.Tag); loaded {
-				outboundGroup.IsExpand = isExpand
+			if isExpand, loaded := cacheFile.LoadGroupExpand(group.Tag); loaded {
+				group.IsExpand = isExpand
 			}
 		}
 
 		for _, itemTag := range iGroup.All() {
-			itemOutbound, isLoaded := boxService.instance.Outbound().Outbound(itemTag)
+			itemOutbound, isLoaded := boxService.instance.Router().Outbound(itemTag)
 			if !isLoaded {
 				continue
 			}
@@ -142,14 +199,63 @@ func writeGroups(writer io.Writer, boxService *BoxService) error {
 				item.URLTestTime = history.Time.Unix()
 				item.URLTestDelay = int32(history.Delay)
 			}
-			outboundGroup.ItemList = append(outboundGroup.ItemList, &item)
+			group.items = append(group.items, &item)
 		}
-		if len(outboundGroup.ItemList) < 2 {
+		if len(group.items) < 2 {
 			continue
 		}
-		groups = append(groups, outboundGroup)
+		groups = append(groups, group)
 	}
-	return varbin.Write(writer, binary.BigEndian, groups)
+
+	err := binary.Write(writer, binary.BigEndian, uint16(len(groups)))
+	if err != nil {
+		return err
+	}
+	for _, group := range groups {
+		err = rw.WriteVString(writer, group.Tag)
+		if err != nil {
+			return err
+		}
+		err = rw.WriteVString(writer, group.Type)
+		if err != nil {
+			return err
+		}
+		err = binary.Write(writer, binary.BigEndian, group.Selectable)
+		if err != nil {
+			return err
+		}
+		err = rw.WriteVString(writer, group.Selected)
+		if err != nil {
+			return err
+		}
+		err = binary.Write(writer, binary.BigEndian, group.IsExpand)
+		if err != nil {
+			return err
+		}
+		err = binary.Write(writer, binary.BigEndian, uint16(len(group.items)))
+		if err != nil {
+			return err
+		}
+		for _, item := range group.items {
+			err = rw.WriteVString(writer, item.Tag)
+			if err != nil {
+				return err
+			}
+			err = rw.WriteVString(writer, item.Type)
+			if err != nil {
+				return err
+			}
+			err = binary.Write(writer, binary.BigEndian, item.URLTestTime)
+			if err != nil {
+				return err
+			}
+			err = binary.Write(writer, binary.BigEndian, item.URLTestDelay)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (c *CommandClient) SetGroupExpand(groupTag string, isExpand bool) error {
@@ -162,7 +268,7 @@ func (c *CommandClient) SetGroupExpand(groupTag string, isExpand bool) error {
 	if err != nil {
 		return err
 	}
-	err = varbin.Write(conn, binary.BigEndian, groupTag)
+	err = rw.WriteVString(conn, groupTag)
 	if err != nil {
 		return err
 	}
@@ -174,7 +280,7 @@ func (c *CommandClient) SetGroupExpand(groupTag string, isExpand bool) error {
 }
 
 func (s *CommandServer) handleSetGroupExpand(conn net.Conn) error {
-	groupTag, err := varbin.ReadValue[string](conn, binary.BigEndian)
+	groupTag, err := rw.ReadVString(conn)
 	if err != nil {
 		return err
 	}

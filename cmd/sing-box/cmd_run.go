@@ -12,10 +12,10 @@ import (
 	"syscall"
 	"time"
 
-	box "github.com/HZ-PRE/sing-box"
-	C "github.com/HZ-PRE/sing-box/constant"
-	"github.com/HZ-PRE/sing-box/log"
-	"github.com/HZ-PRE/sing-box/option"
+	"github.com/sagernet/sing-box"
+	C "github.com/sagernet/sing-box/constant"
+	"github.com/sagernet/sing-box/log"
+	"github.com/sagernet/sing-box/option"
 	E "github.com/sagernet/sing/common/exceptions"
 	"github.com/sagernet/sing/common/json"
 	"github.com/sagernet/sing/common/json/badjson"
@@ -57,7 +57,7 @@ func readConfigAt(path string) (*OptionsEntry, error) {
 	if err != nil {
 		return nil, E.Cause(err, "read config at ", path)
 	}
-	options, err := json.UnmarshalExtendedContext[option.Options](globalCtx, configContent)
+	options, err := json.UnmarshalExtended[option.Options](configContent)
 	if err != nil {
 		return nil, E.Cause(err, "decode config at ", path)
 	}
@@ -109,13 +109,13 @@ func readConfigAndMerge() (option.Options, error) {
 	}
 	var mergedMessage json.RawMessage
 	for _, options := range optionsList {
-		mergedMessage, err = badjson.MergeJSON(globalCtx, options.options.RawMessage, mergedMessage, false)
+		mergedMessage, err = badjson.MergeJSON(options.options.RawMessage, mergedMessage)
 		if err != nil {
 			return option.Options{}, E.Cause(err, "merge config at ", options.path)
 		}
 	}
 	var mergedOptions option.Options
-	err = mergedOptions.UnmarshalJSONContext(globalCtx, mergedMessage)
+	err = mergedOptions.UnmarshalJSON(mergedMessage)
 	if err != nil {
 		return option.Options{}, E.Cause(err, "unmarshal merged config")
 	}
@@ -188,12 +188,9 @@ func run() error {
 			cancel()
 			closeCtx, closed := context.WithCancel(context.Background())
 			go closeMonitor(closeCtx)
-			err = instance.Close()
+			instance.Close()
 			closed()
 			if osSignal != syscall.SIGHUP {
-				if err != nil {
-					log.Error(E.Cause(err, "sing-box did not closed properly"))
-				}
 				return nil
 			}
 			break
@@ -202,7 +199,7 @@ func run() error {
 }
 
 func closeMonitor(ctx context.Context) {
-	time.Sleep(C.FatalStopTimeout)
+	time.Sleep(C.DefaultStopFatalTimeout)
 	select {
 	case <-ctx.Done():
 		return

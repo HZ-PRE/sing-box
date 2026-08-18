@@ -1,12 +1,12 @@
 package constant
 
 import (
-	"github.com/HZ-PRE/sing-box/constant/goos"
+	"github.com/sagernet/sing-box/constant/goos"
 )
 
 const IsAndroid = goos.IsAndroid == 1
 
-const IsDarwin = goos.IsDarwin == 1 || goos.IsIos == 1
+const IsDarwin = goos.IsDarwin == 1
 
 const IsDragonfly = goos.IsDragonfly == 1
 

@@ -1,34 +1,20 @@
 package main
 
 import (
-	"flag"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
 
-	"github.com/HZ-PRE/sing-box/cmd/internal/build_shared"
-	"github.com/HZ-PRE/sing-box/log"
+	"github.com/sagernet/sing-box/cmd/internal/build_shared"
+	"github.com/sagernet/sing-box/log"
 	"github.com/sagernet/sing/common"
 )
 
-var flagRunInCI bool
-
-func init() {
-	flag.BoolVar(&flagRunInCI, "ci", false, "Run in CI")
-}
-
 func main() {
-	flag.Parse()
-	newVersion := common.Must1(build_shared.ReadTag())
-	var androidPath string
-	if flagRunInCI {
-		androidPath = "clients/android"
-	} else {
-		androidPath = "../sing-box-for-android"
-	}
-	androidPath, err := filepath.Abs(androidPath)
+	newVersion := common.Must1(build_shared.ReadTagVersion())
+	androidPath, err := filepath.Abs("../sing-box-for-android")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -45,10 +31,10 @@ func main() {
 	for _, propPair := range propsList {
 		switch propPair[0] {
 		case "VERSION_NAME":
-			if propPair[1] != newVersion {
+			if propPair[1] != newVersion.String() {
 				versionUpdated = true
-				propPair[1] = newVersion
-				log.Info("updated version to ", newVersion)
+				propPair[1] = newVersion.String()
+				log.Info("updated version to ", newVersion.String())
 			}
 		case "GO_VERSION":
 			if propPair[1] != runtime.Version() {

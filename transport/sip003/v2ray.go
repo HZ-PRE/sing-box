@@ -5,14 +5,13 @@ import (
 	"net"
 	"strconv"
 
-	"github.com/HZ-PRE/sing-box/adapter"
-	"github.com/HZ-PRE/sing-box/common/tls"
-	C "github.com/HZ-PRE/sing-box/constant"
-	"github.com/HZ-PRE/sing-box/option"
-	"github.com/HZ-PRE/sing-box/transport/v2ray"
-	vmess "github.com/sagernet/sing-vmess"
+	"github.com/sagernet/sing-box/adapter"
+	"github.com/sagernet/sing-box/common/tls"
+	C "github.com/sagernet/sing-box/constant"
+	"github.com/sagernet/sing-box/option"
+	"github.com/sagernet/sing-box/transport/v2ray"
+	"github.com/sagernet/sing-vmess"
 	E "github.com/sagernet/sing/common/exceptions"
-	"github.com/sagernet/sing/common/json/badoption"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
 )
@@ -68,7 +67,7 @@ func newV2RayPlugin(ctx context.Context, pluginOpts Args, router adapter.Router,
 		transportOptions = option.V2RayTransportOptions{
 			Type: C.V2RayTransportTypeWebsocket,
 			WebsocketOptions: option.V2RayWebsocketOptions{
-				Headers: map[string]badoption.Listable[string]{
+				Headers: map[string]option.Listable[string]{
 					"Host": []string{host},
 				},
 				Path: path,

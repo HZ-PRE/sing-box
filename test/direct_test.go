@@ -4,10 +4,8 @@ import (
 	"net/netip"
 	"testing"
 
-	C "github.com/HZ-PRE/sing-box/constant"
-	"github.com/HZ-PRE/sing-box/option"
-	"github.com/sagernet/sing/common"
-	"github.com/sagernet/sing/common/json/badoption"
+	C "github.com/sagernet/sing-box/constant"
+	"github.com/sagernet/sing-box/option"
 )
 
 // Since this is a feature one-off added by outsiders, I won't address these anymore.
@@ -17,18 +15,18 @@ func _TestProxyProtocol(t *testing.T) {
 			{
 				Type: C.TypeMixed,
 				Tag:  "mixed-in",
-				Options: &option.HTTPMixedInboundOptions{
+				MixedOptions: option.HTTPMixedInboundOptions{
 					ListenOptions: option.ListenOptions{
-						Listen:     common.Ptr(badoption.Addr(netip.IPv4Unspecified())),
+						Listen:     option.NewListenAddress(netip.IPv4Unspecified()),
 						ListenPort: clientPort,
 					},
 				},
 			},
 			{
 				Type: C.TypeDirect,
-				Options: &option.DirectInboundOptions{
+				DirectOptions: option.DirectInboundOptions{
 					ListenOptions: option.ListenOptions{
-						Listen:        common.Ptr(badoption.Addr(netip.IPv4Unspecified())),
+						Listen:        option.NewListenAddress(netip.IPv4Unspecified()),
 						ListenPort:    serverPort,
 						ProxyProtocol: true,
 					},
@@ -42,7 +40,7 @@ func _TestProxyProtocol(t *testing.T) {
 			{
 				Type: C.TypeDirect,
 				Tag:  "proxy-out",
-				Options: &option.DirectOutboundOptions{
+				DirectOptions: option.DirectOutboundOptions{
 					OverrideAddress: "127.0.0.1",
 					OverridePort:    serverPort,
 					ProxyProtocol:   2,
@@ -52,18 +50,9 @@ func _TestProxyProtocol(t *testing.T) {
 		Route: &option.RouteOptions{
 			Rules: []option.Rule{
 				{
-					Type: C.RuleTypeDefault,
 					DefaultOptions: option.DefaultRule{
-						RawDefaultRule: option.RawDefaultRule{
-							Inbound: []string{"mixed-in"},
-						},
-						RuleAction: option.RuleAction{
-							Action: C.RuleActionTypeRoute,
-
-							RouteOptions: option.RouteActionOptions{
-								Outbound: "proxy-out",
-							},
-						},
+						Inbound:  []string{"mixed-in"},
+						Outbound: "proxy-out",
 					},
 				},
 			},

@@ -7,9 +7,9 @@ import (
 	"runtime/debug"
 	"strings"
 
-	"github.com/HZ-PRE/sing-box/common/humanize"
-	"github.com/HZ-PRE/sing-box/log"
-	"github.com/HZ-PRE/sing-box/option"
+	"github.com/sagernet/sing-box/common/humanize"
+	"github.com/sagernet/sing-box/log"
+	"github.com/sagernet/sing-box/option"
 	E "github.com/sagernet/sing/common/exceptions"
 	"github.com/sagernet/sing/common/json"
 	"github.com/sagernet/sing/common/json/badjson"
@@ -46,7 +46,7 @@ func applyDebugListenOption(options option.DebugOptions) {
 
 			encoder := json.NewEncoder(writer)
 			encoder.SetIndent("", "  ")
-			encoder.Encode(&memObject)
+			encoder.Encode(memObject)
 		})
 		r.Route("/pprof", func(r chi.Router) {
 			r.HandleFunc("/", func(writer http.ResponseWriter, request *http.Request) {

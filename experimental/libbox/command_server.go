@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/HZ-PRE/sing-box/common/urltest"
-	"github.com/HZ-PRE/sing-box/experimental/clashapi"
-	"github.com/HZ-PRE/sing-box/log"
+	"github.com/sagernet/sing-box/common/urltest"
+	"github.com/sagernet/sing-box/experimental/clashapi"
+	"github.com/sagernet/sing-box/log"
 	"github.com/sagernet/sing/common"
 	"github.com/sagernet/sing/common/debug"
 	E "github.com/sagernet/sing/common/exceptions"
@@ -33,8 +33,6 @@ type CommandServer struct {
 	urlTestUpdate chan struct{}
 	modeUpdate    chan struct{}
 	logReset      chan struct{}
-
-	closedConnections []Connection
 }
 
 type CommandServerHandler interface {
@@ -60,10 +58,18 @@ func NewCommandServer(handler CommandServerHandler, maxLines int32) *CommandServ
 func (s *CommandServer) SetService(newService *BoxService) {
 	if newService != nil {
 		service.PtrFromContext[urltest.HistoryStorage](newService.ctx).SetHook(s.urlTestUpdate)
-		newService.clashServer.(*clashapi.Server).SetModeUpdateHook(s.modeUpdate)
+		newService.instance.Router().ClashServer().(*clashapi.Server).SetModeUpdateHook(s.modeUpdate)
 	}
 	s.service = newService
 	s.notifyURLTestUpdate()
+}
+
+func (s *CommandServer) ResetLog() {
+	s.savedLines.Init()
+	select {
+	case s.logReset <- struct{}{}:
+	default:
+	}
 }
 
 func (s *CommandServer) notifyURLTestUpdate() {
@@ -170,12 +176,6 @@ func (s *CommandServer) handleConnection(conn net.Conn) error {
 		return s.handleGetSystemProxyStatus(conn)
 	case CommandSetSystemProxyEnabled:
 		return s.handleSetSystemProxyEnabled(conn)
-	case CommandConnections:
-		return s.handleConnectionsConn(conn)
-	case CommandCloseConnection:
-		return s.handleCloseConnection(conn)
-	case CommandGetDeprecatedNotes:
-		return s.handleGetDeprecatedNotes(conn)
 	default:
 		return E.New("unknown command: ", command)
 	}

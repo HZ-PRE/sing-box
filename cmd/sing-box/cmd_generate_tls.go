@@ -4,8 +4,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/HZ-PRE/sing-box/common/tls"
-	"github.com/HZ-PRE/sing-box/log"
+	"github.com/sagernet/sing-box/common/tls"
+	"github.com/sagernet/sing-box/log"
 
 	"github.com/spf13/cobra"
 )

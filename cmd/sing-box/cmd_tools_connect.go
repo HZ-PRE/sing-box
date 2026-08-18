@@ -4,7 +4,7 @@ import (
 	"context"
 	"os"
 
-	"github.com/HZ-PRE/sing-box/log"
+	"github.com/sagernet/sing-box/log"
 	"github.com/sagernet/sing/common"
 	"github.com/sagernet/sing/common/bufio"
 	E "github.com/sagernet/sing/common/exceptions"
@@ -45,7 +45,7 @@ func connect(address string) error {
 		return err
 	}
 	defer instance.Close()
-	dialer, err := createDialer(instance, commandToolsFlagOutbound)
+	dialer, err := createDialer(instance, commandConnectFlagNetwork, commandToolsFlagOutbound)
 	if err != nil {
 		return err
 	}
