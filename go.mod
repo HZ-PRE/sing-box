@@ -38,7 +38,7 @@ require (
 	github.com/sagernet/sing-mux v0.2.0
 	github.com/sagernet/sing-quic v0.2.2
 	github.com/sagernet/sing-shadowsocks v0.2.7
-	github.com/sagernet/sing-shadowsocks2 v0.2.0
+	github.com/sagernet/sing-shadowsocks2 v0.2.1
 	github.com/sagernet/sing-shadowtls v0.1.4
 	github.com/sagernet/sing-tun v0.3.3
 	github.com/sagernet/sing-vmess v0.1.12
@@ -125,3 +125,5 @@ require (
 replace github.com/sagernet/wireguard-go => github.com/hiddify/wireguard-go v0.0.0-20240727191222-383c1da14ff1
 
 replace github.com/xtls/xray-core => github.com/hiddify/xray-core v0.0.0-20240902024714-0fcb0895bb4b
+
+replace github.com/sagernet/sing-shadowsocks2 => ../sing-shadowsocks2

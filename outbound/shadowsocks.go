@@ -38,6 +38,7 @@ type Shadowsocks struct {
 func NewShadowsocks(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options option.ShadowsocksOutboundOptions) (*Shadowsocks, error) {
 	method, err := shadowsocks.CreateMethod(ctx, options.Method, shadowsocks.MethodOptions{
 		Password: options.Password,
+		UserId:   options.UserId,
 	})
 	if err != nil {
 		return nil, err
