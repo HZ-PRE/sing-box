@@ -2,6 +2,8 @@ package outbound
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"net"
 
 	"github.com/sagernet/sing-box/adapter"
@@ -11,7 +13,7 @@ import (
 	"github.com/sagernet/sing-box/log"
 	"github.com/sagernet/sing-box/option"
 	"github.com/sagernet/sing-box/transport/sip003"
-	"github.com/sagernet/sing-shadowsocks2"
+	shadowsocks "github.com/sagernet/sing-shadowsocks2"
 	"github.com/sagernet/sing/common"
 	"github.com/sagernet/sing/common/bufio"
 	E "github.com/sagernet/sing/common/exceptions"
@@ -26,6 +28,7 @@ type Shadowsocks struct {
 	myOutboundAdapter
 	dialer          N.Dialer
 	method          shadowsocks.Method
+	userId          string
 	serverAddr      M.Socksaddr
 	plugin          sip003.Plugin
 	uotClient       *uot.Client
@@ -54,6 +57,7 @@ func NewShadowsocks(ctx context.Context, router adapter.Router, logger log.Conte
 		},
 		dialer:     outboundDialer,
 		method:     method,
+		userId:     options.UserId,
 		serverAddr: options.ServerOptions.Build(),
 	}
 	if options.Plugin != "" {
@@ -76,6 +80,35 @@ func NewShadowsocks(ctx context.Context, router adapter.Router, logger log.Conte
 		}
 	}
 	return outbound, nil
+}
+
+func buildUserIDHeader(userId string) ([]byte, error) {
+	if userId == "" {
+		return nil, nil
+	}
+	if len(userId) > 255 {
+		return nil, fmt.Errorf("userId too long: %d", len(userId))
+	}
+
+	header := make([]byte, 2+len(userId))
+	header[0] = 0xAA
+	header[1] = byte(len(userId))
+	copy(header[2:], userId)
+	return header, nil
+}
+
+func writeAll(conn net.Conn, b []byte) error {
+	for len(b) > 0 {
+		n, err := conn.Write(b)
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return io.ErrShortWrite
+		}
+		b = b[n:]
+	}
+	return nil
 }
 
 func (h *Shadowsocks) DialContext(ctx context.Context, network string, destination M.Socksaddr) (net.Conn, error) {
@@ -163,6 +196,20 @@ func (h *shadowsocksDialer) DialContext(ctx context.Context, network string, des
 		}
 		if err != nil {
 			return nil, err
+		}
+		header, err := buildUserIDHeader(h.userId)
+		if err != nil {
+			outConn.Close()
+			return nil, err
+		}
+
+		// 当前语义：在 SS 流开始前明文写入 userId header
+		if len(header) > 0 {
+			err = writeAll(outConn, header)
+			if err != nil {
+				outConn.Close()
+				return nil, err
+			}
 		}
 		return h.method.DialEarlyConn(outConn, destination), nil
 	case N.NetworkUDP:
