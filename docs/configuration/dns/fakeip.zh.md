@@ -1,4 +1,10 @@
-# FakeIP
+---
+icon: material/note-remove
+---
+
+!!! failure "已在 sing-box 1.14.0 移除"
+
+    旧的 fake-ip 配置已在 sing-box 1.12.0 废弃且已在 sing-box 1.14.0 中被移除，参阅 [迁移指南](/zh/migration/#迁移到新的-dns-服务器格式)。
 
 ### 结构
 

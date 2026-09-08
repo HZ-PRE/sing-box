@@ -9,7 +9,10 @@
 
   "method": "2022-blake3-aes-128-gcm",
   "password": "8JCsPssfgS8tiRwiMlhARg==",
-  "multiplex": {}
+  "managed": false,
+  "multiplex": {},
+  "obfs_mode": "",
+  "obfs_host": ""
 }
 ```
 
@@ -86,6 +89,22 @@ Both if empty.
 | 2022 methods  | `sing-box generate rand --base64 <Key Length>` |
 | other methods | any string                                     |
 
+#### managed
+
+Defaults to `false`. Enable this when the inbound is managed by the [SSM API](/configuration/service/ssm-api) for dynamic user.
+
 #### multiplex
 
 See [Multiplex](/configuration/shared/multiplex#inbound) for details.
+
+#### obfs_mode
+
+Simple-obfs obfuscation mode.
+
+One of `http` `tls`, or empty to disable.
+
+#### obfs_host
+
+The obfuscation hostname used for HTTP/TLS obfuscation.
+
+Defaults to `bing.com` if not set.

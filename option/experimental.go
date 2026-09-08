@@ -1,29 +1,41 @@
 package option
 
+import (
+	"github.com/sagernet/sing/common/json/badoption"
+)
+
 type ExperimentalOptions struct {
-	CacheFile *CacheFileOptions `json:"cache_file,omitempty"`
-	ClashAPI  *ClashAPIOptions  `json:"clash_api,omitempty"`
-	V2RayAPI  *V2RayAPIOptions  `json:"v2ray_api,omitempty"`
-	Debug     *DebugOptions     `json:"debug,omitempty"`
+	CacheFile    *CacheFileOptions    `json:"cache_file,omitempty"`
+	ClashAPI     *ClashAPIOptions     `json:"clash_api,omitempty"`
+	V2RayAPI     *V2RayAPIOptions     `json:"v2ray_api,omitempty"`
+	UnifiedDelay *UnifiedDelayOptions `json:"unified_delay,omitempty"`
+	Debug        *DebugOptions        `json:"debug,omitempty"`
+
+	Monitoring *MonitoringOptions `json:"monitoring,omitempty"`
 }
 
 type CacheFileOptions struct {
-	Enabled     bool     `json:"enabled,omitempty"`
-	Path        string   `json:"path,omitempty"`
-	CacheID     string   `json:"cache_id,omitempty"`
-	StoreFakeIP bool     `json:"store_fakeip,omitempty"`
-	StoreRDRC   bool     `json:"store_rdrc,omitempty"`
-	RDRCTimeout Duration `json:"rdrc_timeout,omitempty"`
+	Enabled         bool               `json:"enabled,omitempty"`
+	Path            string             `json:"path,omitempty"`
+	CacheID         string             `json:"cache_id,omitempty"`
+	StoreFakeIP     bool               `json:"store_fakeip,omitempty"`
+	StoreRDRC       bool               `json:"store_rdrc,omitempty"`
+	StoreWARPConfig bool               `json:"store_warp_config,omitempty"`
+	StoreMASQUEConfig bool             `json:"store_masque_config,omitempty"`
+	RDRCTimeout     badoption.Duration `json:"rdrc_timeout,omitempty"`
+	StoreDNS        bool               `json:"store_dns,omitempty"`
 }
 
 type ClashAPIOptions struct {
-	ExternalController       string   `json:"external_controller,omitempty"`
-	ExternalUI               string   `json:"external_ui,omitempty"`
-	ExternalUIDownloadURL    string   `json:"external_ui_download_url,omitempty"`
-	ExternalUIDownloadDetour string   `json:"external_ui_download_detour,omitempty"`
-	Secret                   string   `json:"secret,omitempty"`
-	DefaultMode              string   `json:"default_mode,omitempty"`
-	ModeList                 []string `json:"-"`
+	ExternalController               string                     `json:"external_controller,omitempty"`
+	ExternalUI                       string                     `json:"external_ui,omitempty"`
+	ExternalUIDownloadURL            string                     `json:"external_ui_download_url,omitempty"`
+	ExternalUIDownloadDetour         string                     `json:"external_ui_download_detour,omitempty"`
+	Secret                           string                     `json:"secret,omitempty"`
+	DefaultMode                      string                     `json:"default_mode,omitempty"`
+	ModeList                         []string                   `json:"-"`
+	AccessControlAllowOrigin         badoption.Listable[string] `json:"access_control_allow_origin,omitempty"`
+	AccessControlAllowPrivateNetwork bool                       `json:"access_control_allow_private_network,omitempty"`
 
 	// Deprecated: migrated to global cache file
 	CacheFile string `json:"cache_file,omitempty"`
@@ -47,4 +59,8 @@ type V2RayStatsServiceOptions struct {
 	Inbounds  []string `json:"inbounds,omitempty"`
 	Outbounds []string `json:"outbounds,omitempty"`
 	Users     []string `json:"users,omitempty"`
+}
+
+type UnifiedDelayOptions struct {
+	Enabled bool `json:"enabled,omitempty"`
 }

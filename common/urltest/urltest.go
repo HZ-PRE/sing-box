@@ -2,40 +2,41 @@ package urltest
 
 import (
 	"context"
+	"crypto/tls"
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
 	"sync"
 	"time"
 
-	"github.com/imkira/go-observer/v2"
-	"github.com/sagernet/sing/common"
+	"github.com/sagernet/sing-box/adapter"
+	C "github.com/sagernet/sing-box/constant"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
+	"github.com/sagernet/sing/common/ntp"
+	"github.com/sagernet/sing/common/observable"
 )
 
-type History struct {
-	Time  time.Time `json:"time"`
-	Delay uint16    `json:"delay"`
-}
+var _ adapter.URLTestHistoryStorage = (*HistoryStorage)(nil)
 
 type HistoryStorage struct {
 	access       sync.RWMutex
-	delayHistory map[string]*History
-	updateHook   observer.Property[int]
+	delayHistory map[string]*adapter.URLTestHistory
+	updateHook   *observable.Subscriber[struct{}]
 }
 
 func NewHistoryStorage() *HistoryStorage {
 	return &HistoryStorage{
-		delayHistory: make(map[string]*History),
+		delayHistory: make(map[string]*adapter.URLTestHistory),
 	}
 }
 
-func (s *HistoryStorage) SetHook(hook observer.Property[int]) {
+func (s *HistoryStorage) SetHook(hook *observable.Subscriber[struct{}]) {
 	s.updateHook = hook
 }
 
-func (s *HistoryStorage) LoadURLTestHistory(tag string) *History {
+func (s *HistoryStorage) LoadURLTestHistory(tag string) *adapter.URLTestHistory {
 	if s == nil {
 		return nil
 	}
@@ -45,15 +46,40 @@ func (s *HistoryStorage) LoadURLTestHistory(tag string) *History {
 }
 
 func (s *HistoryStorage) DeleteURLTestHistory(tag string) {
-	s.access.Lock()
-	delete(s.delayHistory, tag)
-	s.access.Unlock()
-	s.notifyUpdated()
+	s.StoreURLTestHistory(tag, &adapter.URLTestHistory{
+		Delay: 65535,
+		Time:  time.Now(),
+	})
+	// s.access.Lock()
+	// // delete(s.delayHistory, tag)
+	// s.access.Unlock()
+	// s.notifyUpdated()
 }
 
-func (s *HistoryStorage) StoreURLTestHistory(tag string, history *History) {
+func (s *HistoryStorage) StoreURLTestHistory(tag string, history *adapter.URLTestHistory) *adapter.URLTestHistory {
 	s.access.Lock()
-	s.delayHistory[tag] = history
+	if old, ok := s.delayHistory[tag]; ok && history != nil {
+		old.Delay = history.Delay
+		old.Time = history.Time
+		if history.IpInfo != nil {
+			old.IpInfo = history.IpInfo
+		}
+	} else {
+		s.delayHistory[tag] = history
+	}
+	history = s.delayHistory[tag]
+	s.access.Unlock()
+	s.notifyUpdated()
+	return history
+}
+
+func (s *HistoryStorage) AddOnlyIpToHistory(tag string, history *adapter.URLTestHistory) {
+	s.access.Lock()
+	if old, ok := s.delayHistory[tag]; ok && history != nil {
+		old.IpInfo = history.IpInfo
+	} else {
+		s.delayHistory[tag] = history
+	}
 	s.access.Unlock()
 	s.notifyUpdated()
 }
@@ -61,20 +87,22 @@ func (s *HistoryStorage) StoreURLTestHistory(tag string, history *History) {
 func (s *HistoryStorage) notifyUpdated() {
 	updateHook := s.updateHook
 	if updateHook != nil {
-		updateHook.Update(1)
-		// select {
-		// case updateHook <- struct{}{}:
-		// default:
-		// }
+		updateHook.Emit(struct{}{})
 	}
 }
 
 func (s *HistoryStorage) Close() error {
+	s.access.Lock()
+	defer s.access.Unlock()
 	s.updateHook = nil
 	return nil
 }
 
 func URLTest(ctx context.Context, link string, detour N.Dialer) (t uint16, err error) {
+	if detour == nil {
+		err = fmt.Errorf("urltest dialer is nil")
+		return
+	}
 	if link == "" {
 		link = "https://www.gstatic.com/generate_204"
 	}
@@ -99,29 +127,60 @@ func URLTest(ctx context.Context, link string, detour N.Dialer) (t uint16, err e
 		return
 	}
 	defer instance.Close()
-	if earlyConn, isEarlyConn := common.Cast[N.EarlyConn](instance); isEarlyConn && earlyConn.NeedHandshake() {
+	if N.NeedHandshakeForWrite(instance) {
 		start = time.Now()
 	}
 	req, err := http.NewRequest(http.MethodHead, link, nil)
 	if err != nil {
 		return
 	}
+	select {
+	case <-ctx.Done():
+		return
+	default:
+	}
 	client := http.Client{
 		Transport: &http.Transport{
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 				return instance, nil
 			},
+			TLSClientConfig: &tls.Config{
+				Time:    ntp.TimeFuncFromContext(ctx),
+				RootCAs: adapter.RootPoolFromContext(ctx),
+			},
 		},
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
+		Timeout: C.TCPTimeout,
 	}
 	defer client.CloseIdleConnections()
+	select {
+	case <-ctx.Done():
+		return
+	default:
+	}
 	resp, err := client.Do(req.WithContext(ctx))
 	if err != nil {
 		return
 	}
 	resp.Body.Close()
+
 	t = uint16(time.Since(start) / time.Millisecond)
+
+	if IsUnifiedDelayFromContext(ctx) {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+		second := time.Now()
+		resp, err = client.Do(req)
+		if err != nil {
+			return
+		}
+		resp.Body.Close()
+		t = uint16(time.Since(second) / time.Millisecond) //to avid timeout in the second call
+	}
 	return
 }

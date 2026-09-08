@@ -1,48 +1,61 @@
-# Rule Set
+!!! quote "Changes in sing-box 1.14.0"
+
+    :material-plus: [http_client](#http_client)  
+    :material-delete-clock: [download_detour](#download_detour)
+
+!!! quote "Changes in sing-box 1.10.0"
+
+    :material-plus: `type: inline`
+
+# rule-set
 
 !!! question "Since sing-box 1.8.0"
 
 ### Structure
 
-```json
-{
-  "type": "",
-  "tag": "",
-  "format": "",
-  
-  ... // Typed Fields
-}
-```
+=== "Inline"
 
-#### Local Structure
+    !!! question "Since sing-box 1.10.0"
 
-```json
-{
-  "type": "local",
-  
-  ...
-  
-  "path": ""
-}
-```
+    ```json
+    {
+      "type": "inline", // optional
+      "tag": "",
+      "rules": []
+    }
+    ```
 
-#### Remote Structure
+=== "Local File"
 
-!!! info ""
+    ```json
+    {
+      "type": "local",
+      "tag": "",
+      "format": "source", // or binary
+      "path": ""
+    }
+    ```
 
-    Remote rule-set will be cached if `experimental.cache_file.enabled`.
+=== "Remote File"
 
-```json
-{
-  "type": "remote",
-  
-  ...,
-  
-  "url": "",
-  "download_detour": "",
-  "update_interval": ""
-}
-```
+    !!! info ""
+    
+        Remote rule-set will be cached if `experimental.cache_file.enabled`.
+
+    ```json
+    {
+      "type": "remote",
+      "tag": "",
+      "format": "source", // or binary
+      "url": "",
+      "http_client": "", // or {}
+      "update_interval": "",
+
+      // Deprecated
+
+      "download_detour": ""
+    }
+    ```
 
 ### Fields
 
@@ -50,19 +63,33 @@
 
 ==Required==
 
-Type of Rule Set, `local` or `remote`.
+Type of rule-set, `local` or `remote`.
 
 #### tag
 
 ==Required==
 
-Tag of Rule Set.
+Tag of rule-set.
+
+### Inline Fields
+
+!!! question "Since sing-box 1.10.0"
+
+#### rules
+
+==Required==
+
+List of [Headless Rule](./headless-rule/).
+
+### Local or Remote Fields
 
 #### format
 
 ==Required==
 
-Format of Rule Set, `source` or `binary`.
+Format of rule-set file, `source` or `binary`.
+
+Optional when `path` or `url` uses `json` or `srs` as extension.
 
 ### Local Fields
 
@@ -70,7 +97,11 @@ Format of Rule Set, `source` or `binary`.
 
 ==Required==
 
-File path of Rule Set.
+!!! note ""
+
+    Will be automatically reloaded if file modified since sing-box 1.10.0.
+
+File path of rule-set.
 
 ### Remote Fields
 
@@ -78,16 +109,28 @@ File path of Rule Set.
 
 ==Required==
 
-Download URL of Rule Set.
+Download URL of rule-set.
 
-#### download_detour
+#### http_client
 
-Tag of the outbound to download rule-set.
+!!! question "Since sing-box 1.14.0"
 
-Default outbound will be used if empty.
+HTTP Client for downloading rule-set.
+
+See [HTTP Client Fields](/configuration/shared/http-client/) for details.
+
+Default transport will be used if empty.
 
 #### update_interval
 
-Update interval of Rule Set.
+Update interval of rule-set.
 
 `1d` will be used if empty.
+
+#### download_detour
+
+!!! failure "Deprecated in sing-box 1.14.0"
+
+    `download_detour` is deprecated in sing-box 1.14.0 and will be removed in sing-box 1.16.0, use `http_client` instead.
+
+Tag of the outbound to download rule-set.

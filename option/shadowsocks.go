@@ -8,6 +8,9 @@ type ShadowsocksInboundOptions struct {
 	Users        []ShadowsocksUser        `json:"users,omitempty"`
 	Destinations []ShadowsocksDestination `json:"destinations,omitempty"`
 	Multiplex    *InboundMultiplexOptions `json:"multiplex,omitempty"`
+	Managed      bool                     `json:"managed,omitempty"`
+	ObfsMode     string                   `json:"obfs_mode,omitempty"`
+	ObfsHost     string                   `json:"obfs_host,omitempty"`
 }
 
 type ShadowsocksUser struct {
@@ -26,7 +29,6 @@ type ShadowsocksOutboundOptions struct {
 	ServerOptions
 	Method        string                    `json:"method"`
 	Password      string                    `json:"password"`
-	UserId        string                    `json:"user_id,omitempty"`
 	Plugin        string                    `json:"plugin,omitempty"`
 	PluginOptions string                    `json:"plugin_opts,omitempty"`
 	Network       NetworkList               `json:"network,omitempty"`

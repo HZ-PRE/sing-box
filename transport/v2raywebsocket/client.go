@@ -26,7 +26,6 @@ var _ adapter.V2RayClientTransport = (*Client)(nil)
 
 type Client struct {
 	dialer              N.Dialer
-	tlsConfig           tls.Config
 	serverAddr          M.Socksaddr
 	requestURL          url.URL
 	headers             http.Header
@@ -39,6 +38,7 @@ func NewClient(ctx context.Context, dialer N.Dialer, serverAddr M.Socksaddr, opt
 		if len(tlsConfig.NextProtos()) == 0 {
 			tlsConfig.SetNextProtos([]string{"http/1.1"})
 		}
+		dialer = tls.NewDialer(dialer, tlsConfig)
 	}
 	var requestURL url.URL
 	if tlsConfig == nil {
@@ -61,11 +61,10 @@ func NewClient(ctx context.Context, dialer N.Dialer, serverAddr M.Socksaddr, opt
 		requestURL.Host = host
 	}
 	if headers.Get("User-Agent") == "" {
-		headers.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+		headers.Set("User-Agent", C.DefaultBrowserAgent) //H
 	}
 	return &Client{
 		dialer,
-		tlsConfig,
 		serverAddr,
 		requestURL,
 		headers,
@@ -79,22 +78,13 @@ func (c *Client) dialContext(ctx context.Context, requestURL *url.URL, headers h
 	if err != nil {
 		return nil, err
 	}
-	if c.tlsConfig != nil {
-		conn, err = tls.ClientHandshake(ctx, conn, c.tlsConfig)
-		if err != nil {
-			return nil, err
-		}
-	}
 	var deadlineConn net.Conn
 	if deadline.NeedAdditionalReadDeadline(conn) {
 		deadlineConn = deadline.NewConn(conn)
 	} else {
 		deadlineConn = conn
 	}
-	err = deadlineConn.SetDeadline(time.Now().Add(C.TCPTimeout))
-	if err != nil {
-		return nil, E.Cause(err, "set read deadline")
-	}
+	deadlineConn.SetDeadline(time.Now().Add(C.TCPTimeout))
 	var protocols []string
 	if protocolHeader := headers.Get("Sec-WebSocket-Protocol"); protocolHeader != "" {
 		protocols = []string{protocolHeader}

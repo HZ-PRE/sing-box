@@ -1,3 +1,7 @@
+_htest/
+/data/*
+*.log
+*.db
 /.idea/
 /vendor/
 /*.json
@@ -12,9 +16,12 @@
 /*.jar
 /*.aar
 /*.xcframework/
+/experimental/libbox/*.aar
+/experimental/libbox/*.xcframework/
+/experimental/libbox/*.nupkg
 .DS_Store
 /config.d/
-
-/htest/*.json
 /venv/
-
+CLAUDE.md
+AGENTS.md
+/.claude/

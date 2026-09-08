@@ -12,12 +12,12 @@ import (
 
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/common/tls"
+	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing-box/option"
 	E "github.com/sagernet/sing/common/exceptions"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
 	sHTTP "github.com/sagernet/sing/protocol/http"
-
 	"golang.org/x/net/http2"
 )
 
@@ -47,15 +47,12 @@ func NewClient(ctx context.Context, dialer N.Dialer, serverAddr M.Socksaddr, opt
 		if len(tlsConfig.NextProtos()) == 0 {
 			tlsConfig.SetNextProtos([]string{http2.NextProtoTLS})
 		}
+		tlsDialer := tls.NewDialer(dialer, tlsConfig)
 		transport = &http2.Transport{
 			ReadIdleTimeout: time.Duration(options.IdleTimeout),
 			PingTimeout:     time.Duration(options.PingTimeout),
 			DialTLSContext: func(ctx context.Context, network, addr string, cfg *tls.STDConfig) (net.Conn, error) {
-				conn, err := dialer.DialContext(ctx, network, M.ParseSocksaddr(addr))
-				if err != nil {
-					return nil, err
-				}
-				return tls.ClientHandshake(ctx, conn, tlsConfig)
+				return tlsDialer.DialTLSContext(ctx, M.ParseSocksaddr(addr))
 			},
 		}
 	}
@@ -78,13 +75,14 @@ func NewClient(ctx context.Context, dialer N.Dialer, serverAddr M.Socksaddr, opt
 		requestURL.Path = "/" + requestURL.Path
 	}
 	headers := options.Headers.Build()
-	if host := headers.Get("Host"); host != "" {
-		headers.Del("Host")
-		requestURL.Host = host
+
+	if host := headers.Get("Host"); host != "" { //H
+		headers.Del("Host")    //H
+		requestURL.Host = host //H
 	}
-	if headers.Get("User-Agent") == "" {
-		headers.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
-	}
+	if headers.Get("User-Agent") == "" { //H
+		headers.Set("User-Agent", C.DefaultBrowserAgent) //H
+	} //H
 	return &Client{
 		ctx:        ctx,
 		dialer:     dialer,
@@ -92,7 +90,7 @@ func NewClient(ctx context.Context, dialer N.Dialer, serverAddr M.Socksaddr, opt
 		requestURL: requestURL,
 		host:       options.Host,
 		method:     options.Method,
-		headers:    headers,
+		headers:    headers, //H
 		transport:  transport,
 		http2:      tlsConfig != nil,
 	}, nil
