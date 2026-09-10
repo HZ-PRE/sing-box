@@ -4,7 +4,9 @@ import (
 	"context"
 	"os"
 	"runtime"
+	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -38,6 +40,8 @@ import (
 
 var _ StartedServiceServer = (*StartedService)(nil)
 
+const asyncLogMessageBufferSize = 1024
+
 type StartedService struct {
 	ctx context.Context
 	// platform adapter.PlatformInterface
@@ -60,6 +64,10 @@ type StartedService struct {
 	logLines                list.List[*log.Entry]
 	logSubscriber           *observable.Subscriber[*log.Entry]
 	logObserver             *observable.Observer[*log.Entry]
+	logMessageQueue         chan *log.Entry
+	logMessageDone          chan struct{}
+	logMessageClosed        atomic.Bool
+	logMessageDropped       atomic.Uint64
 	instance                *Instance
 	startedAt               time.Time
 	urlTestSubscriber       *observable.Subscriber[struct{}]
@@ -109,6 +117,8 @@ func NewStartedService(options ServiceOptions) *StartedService {
 		serviceStatus:             &ServiceStatus{Status: ServiceStatus_IDLE},
 		serviceStatusSubscriber:   observable.NewSubscriber[*ServiceStatus](4),
 		logSubscriber:             observable.NewSubscriber[*log.Entry](128),
+		logMessageQueue:           make(chan *log.Entry, asyncLogMessageBufferSize),
+		logMessageDone:            make(chan struct{}),
 		urlTestSubscriber:         observable.NewSubscriber[struct{}](1),
 		urlTestHistoryStorage:     urltest.NewHistoryStorage(),
 		clashModeSubscriber:       observable.NewSubscriber[struct{}](1),
@@ -120,6 +130,7 @@ func NewStartedService(options ServiceOptions) *StartedService {
 	s.urlTestObserver = observable.NewObserver(s.urlTestSubscriber, 1)
 	s.clashModeObserver = observable.NewObserver(s.clashModeSubscriber, 1)
 	s.connectionEventObserver = observable.NewObserver(s.connectionEventSubscriber, 64)
+	go s.processLogMessages()
 	return s
 }
 
@@ -244,6 +255,9 @@ func (s *StartedService) startOrReloadServiceImp(profileOptions *option.Options,
 }
 
 func (s *StartedService) Close() {
+	if s.logMessageClosed.CompareAndSwap(false, true) {
+		close(s.logMessageDone)
+	}
 	s.serviceStatusSubscriber.Close()
 	s.logSubscriber.Close()
 	s.urlTestSubscriber.Close()
@@ -1533,6 +1547,44 @@ func (s *StartedService) mustEmbedUnimplementedStartedServiceServer() {
 
 func (s *StartedService) WriteMessage(level log.Level, message string) {
 	item := &log.Entry{Level: level, Message: message}
+	select {
+	case <-s.logMessageDone:
+		return
+	default:
+	}
+	select {
+	case s.logMessageQueue <- item:
+	default:
+		s.logMessageDropped.Add(1)
+	}
+}
+
+func (s *StartedService) processLogMessages() {
+	for {
+		select {
+		case <-s.logMessageDone:
+			s.flushLogMessages()
+			return
+		case item := <-s.logMessageQueue:
+			s.writeLogMessage(item)
+		}
+	}
+}
+
+func (s *StartedService) flushLogMessages() {
+	for {
+		select {
+		case item := <-s.logMessageQueue:
+			s.writeLogMessage(item)
+		default:
+			s.writeDroppedLogMessage()
+			return
+		}
+	}
+}
+
+func (s *StartedService) writeLogMessage(item *log.Entry) {
+	s.writeDroppedLogMessage()
 	s.logAccess.Lock()
 	s.logLines.PushBack(item)
 	if s.logLines.Len() > s.logMaxLines {
@@ -1541,8 +1593,26 @@ func (s *StartedService) WriteMessage(level log.Level, message string) {
 	s.logAccess.Unlock()
 	s.logSubscriber.Emit(item)
 	if s.debug {
-		s.handler.WriteDebugMessage(message)
+		s.handler.WriteDebugMessage(item.Message)
 	}
+}
+
+func (s *StartedService) writeDroppedLogMessage() {
+	dropped := s.logMessageDropped.Swap(0)
+	if dropped == 0 {
+		return
+	}
+	item := &log.Entry{
+		Level:   log.LevelWarn,
+		Message: "dropped " + strconv.FormatUint(dropped, 10) + " log messages because the async platform log queue is full",
+	}
+	s.logAccess.Lock()
+	s.logLines.PushBack(item)
+	if s.logLines.Len() > s.logMaxLines {
+		s.logLines.Remove(s.logLines.Front())
+	}
+	s.logAccess.Unlock()
+	s.logSubscriber.Emit(item)
 }
 
 func (s *StartedService) Instance() *Instance {

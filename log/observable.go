@@ -4,6 +4,8 @@ import (
 	"context"
 	"io"
 	"os"
+	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/sagernet/sing/common"
@@ -14,11 +16,23 @@ import (
 
 var _ Factory = (*defaultFactory)(nil)
 
+const asyncLogTaskBufferSize = 2048
+
+type asyncLogTask struct {
+	ctx   context.Context
+	level Level
+	tag   string
+	args  []any
+	time  time.Time
+}
+
 type defaultFactory struct {
 	ctx               context.Context
 	formatter         Formatter
 	platformFormatter Formatter
+	rawWriter         io.Writer
 	writer            io.Writer
+	asyncWriter       *asyncWriter
 	file              *os.File
 	filePath          string
 	platformWriter    PlatformWriter
@@ -26,6 +40,10 @@ type defaultFactory struct {
 	level             Level
 	subscriber        *observable.Subscriber[Entry]
 	observer          *observable.Observer[Entry]
+	logQueue          chan asyncLogTask
+	logDone           chan struct{}
+	logClosed         atomic.Bool
+	logDropped        atomic.Uint64
 }
 
 func NewDefaultFactory(
@@ -49,6 +67,8 @@ func NewDefaultFactory(
 		needObservable: needObservable,
 		level:          LevelTrace,
 		subscriber:     observable.NewSubscriber[Entry](128),
+		logQueue:       make(chan asyncLogTask, asyncLogTaskBufferSize),
+		logDone:        make(chan struct{}),
 	}
 	/*if platformWriter != nil {
 		factory.platformFormatter.DisableColors = platformWriter.DisableColors()
@@ -56,6 +76,8 @@ func NewDefaultFactory(
 	if needObservable {
 		factory.observer = observable.NewObserver[Entry](factory.subscriber, 64)
 	}
+	factory.setWriter(writer)
+	go factory.processLogTasks()
 	return factory
 }
 
@@ -65,17 +87,36 @@ func (f *defaultFactory) Start() error {
 		if err != nil {
 			return err
 		}
-		f.writer = logFile
 		f.file = logFile
+		f.setWriter(logFile)
 	}
 	return nil
 }
 
 func (f *defaultFactory) Close() error {
+	if f.logClosed.CompareAndSwap(false, true) {
+		close(f.logDone)
+	}
 	return common.Close(
+		common.PtrOrNil(f.asyncWriter),
 		common.PtrOrNil(f.file),
 		f.subscriber,
 	)
+}
+
+func (f *defaultFactory) setWriter(writer io.Writer) {
+	if f.asyncWriter != nil {
+		_ = f.asyncWriter.Close()
+	}
+	if writer == nil {
+		f.rawWriter = nil
+		f.writer = nil
+		f.asyncWriter = nil
+		return
+	}
+	f.rawWriter = writer
+	f.asyncWriter = newAsyncWriter(writer)
+	f.writer = f.asyncWriter
 }
 
 func (f *defaultFactory) Level() Level {
@@ -102,6 +143,103 @@ func (f *defaultFactory) UnSubscribe(sub observable.Subscription[Entry]) {
 	f.observer.UnSubscribe(sub)
 }
 
+func (f *defaultFactory) enqueueLogTask(task asyncLogTask) {
+	select {
+	case <-f.logDone:
+		return
+	default:
+	}
+	select {
+	case f.logQueue <- task:
+	default:
+		f.logDropped.Add(1)
+	}
+}
+
+func (f *defaultFactory) processLogTasks() {
+	for {
+		select {
+		case <-f.logDone:
+			f.flushLogTasks()
+			return
+		case task := <-f.logQueue:
+			f.writeLogTask(task)
+		}
+	}
+}
+
+func (f *defaultFactory) flushLogTasks() {
+	for {
+		select {
+		case task := <-f.logQueue:
+			f.writeLogTask(task)
+		default:
+			f.writeDroppedLogTasks()
+			return
+		}
+	}
+}
+
+func (f *defaultFactory) writeLogTask(task asyncLogTask) {
+	f.writeDroppedLogTasks()
+	content := F.ToString(task.args...)
+	if f.needObservable {
+		message, messageSimple := f.formatter.FormatWithSimple(task.ctx, task.level, task.tag, content, task.time)
+		if task.level == LevelPanic {
+			f.writeSync(message)
+			panic(message)
+		}
+		if task.level == LevelFatal {
+			f.writeSync(message)
+			os.Exit(1)
+		}
+		f.writeAsync(message)
+		f.subscriber.Emit(Entry{task.level, messageSimple})
+	} else {
+		message := f.formatter.Format(task.ctx, task.level, task.tag, content, task.time)
+		if task.level == LevelPanic {
+			f.writeSync(message)
+			panic(message)
+		}
+		if task.level == LevelFatal {
+			f.writeSync(message)
+			os.Exit(1)
+		}
+		f.writeAsync(message)
+	}
+	if f.platformWriter != nil {
+		f.platformWriter.WriteMessage(task.level, f.platformFormatter.Format(task.ctx, task.level, task.tag, content, task.time))
+	}
+}
+
+func (f *defaultFactory) writeAsync(message string) {
+	if f.writer != nil {
+		f.writer.Write([]byte(message))
+	}
+}
+
+func (f *defaultFactory) writeSync(message string) {
+	if f.rawWriter != nil {
+		f.rawWriter.Write([]byte(message))
+	}
+}
+
+func (f *defaultFactory) writeDroppedLogTasks() {
+	dropped := f.logDropped.Swap(0)
+	if dropped == 0 {
+		return
+	}
+	content := "dropped " + strconv.FormatUint(dropped, 10) + " log messages because the async log queue is full"
+	message, messageSimple := f.formatter.FormatWithSimple(context.Background(), LevelWarn, "", content, time.Now())
+	f.writer.Write([]byte(message))
+	if f.needObservable {
+		f.subscriber.Emit(Entry{LevelWarn, messageSimple})
+	}
+	if f.platformWriter != nil {
+		f.platformWriter.WriteMessage(LevelWarn, f.platformFormatter.Format(context.Background(), LevelWarn, "", content, time.Now()))
+	}
+}
+
 var _ ContextLogger = (*observableLogger)(nil)
 
 type observableLogger struct {
@@ -111,35 +249,21 @@ type observableLogger struct {
 
 func (l *observableLogger) Log(ctx context.Context, level Level, args []any) {
 	level = OverrideLevelFromContext(level, ctx)
-	if level > l.level && l.platformWriter == nil {
+	if level > l.level {
 		return
 	}
-	nowTime := time.Now()
-	if level <= l.level {
-		if l.needObservable {
-			message, messageSimple := l.formatter.FormatWithSimple(ctx, level, l.tag, F.ToString(args...), nowTime)
-			if level == LevelPanic {
-				panic(message)
-			}
-			l.writer.Write([]byte(message))
-			if level == LevelFatal {
-				os.Exit(1)
-			}
-			l.subscriber.Emit(Entry{level, messageSimple})
-		} else {
-			message := l.formatter.Format(ctx, level, l.tag, F.ToString(args...), nowTime)
-			if level == LevelPanic {
-				panic(message)
-			}
-			l.writer.Write([]byte(message))
-			if level == LevelFatal {
-				os.Exit(1)
-			}
-		}
+	task := asyncLogTask{
+		ctx:   ctx,
+		level: level,
+		tag:   l.tag,
+		args:  append([]any(nil), args...),
+		time:  time.Now(),
 	}
-	if l.platformWriter != nil {
-		l.platformWriter.WriteMessage(level, l.platformFormatter.Format(ctx, level, l.tag, F.ToString(args...), nowTime))
+	if level == LevelPanic || level == LevelFatal {
+		l.writeLogTask(task)
+		return
 	}
+	l.enqueueLogTask(task)
 }
 
 func (l *observableLogger) Trace(args ...any) {
