@@ -155,7 +155,6 @@ require (
 	github.com/grafov/m3u8 v0.0.0-20171211212457-6ab8f28ed427 // indirect
 	github.com/hashicorp/yamux v0.1.2 // indirect
 	github.com/hdevalence/ed25519consensus v0.2.0 // indirect
-	github.com/hiddify/hmrd_multi_resolver_dns v0.0.0-20260429114007-8d809dc33d0e
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/josharian/native v1.1.1-0.20230202152459-5c7d0dd6ab86 // indirect
 	github.com/kamstrup/intmap v0.5.2 // indirect
@@ -227,6 +226,7 @@ require (
 	github.com/sagernet/cronet-go/lib/windows_arm64 v0.0.0-20260413092954-cd09eb3e271b // indirect
 	github.com/sagernet/netlink v0.0.0-20240612041022-b9a21c07ac6a // indirect
 	github.com/sagernet/nftables v0.3.0-mod.2 // indirect
+	github.com/sdm/hmrd_multi_resolver_dns v0.0.0-20260429114007-8d809dc33d0e
 	github.com/sergeyfrolov/bsbuffer v0.0.0-20180903213811-94e85abb8507 // indirect
 	github.com/shadowsocks/go-shadowsocks2 v0.1.5 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
@@ -275,7 +275,7 @@ replace github.com/sagernet/sing-dns => github.com/shtorm-7/sing-dns v0.4.6-exte
 
 replace github.com/ameshkov/dnscrypt/v2 => github.com/shtorm-7/dnscrypt/v2 v2.4.0-extended-1.0.0
 
-// replace github.com/sagernet/wireguard-go => github.com/hiddify/wireguard-go v0.0.0-20260207195137-b12022450359
+// replace github.com/sagernet/wireguard-go => github.com/sdm/wireguard-go v0.0.0-20260207195137-b12022450359
 replace github.com/sagernet/wireguard-go => ./replace/wireguard-go
 
 replace github.com/sagernet/tailscale => ./replace/tailscale
@@ -284,6 +284,8 @@ replace github.com/Psiphon-Labs/quic-go => ./replace/psiphon-quic-go
 
 replace github.com/Psiphon-Labs/psiphon-tls => ./replace/psiphon-tls
 
-replace github.com/net2share/vaydns => github.com/hiddify/vaydns v0.0.0-20260401180616-890dc987a6a9
+replace github.com/net2share/vaydns => ../third_party/vaydns
 
-replace github.com/kianmhz/GooseRelayVPN => github.com/hiddify/GooseRelayVPN v0.0.0-20260429125124-0e68c2a3ae4c
+replace github.com/kianmhz/GooseRelayVPN => ../third_party/GooseRelayVPN
+
+replace github.com/sdm/hmrd_multi_resolver_dns => ../third_party/hmrd_multi_resolver_dns

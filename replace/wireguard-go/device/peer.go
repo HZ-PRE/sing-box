@@ -132,7 +132,7 @@ func (peer *Peer) SendBuffersWithoutModify(buffers [][]byte) error {
 		peer.endpoint.clearSrcOnTx = false
 	}
 	peer.endpoint.Unlock()
-	//Hiddify-GFW-knocker
+	//Sdm-GFW-knocker
 	err := peer.device.net.bind.SendWithoutModify(buffers, endpoint, MessageEncapsulatingTransportSize)
 	if err == nil {
 		var totalLen uint64

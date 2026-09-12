@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	multidns "github.com/hiddify/hmrd_multi_resolver_dns"
+	multidns "github.com/sdm/hmrd_multi_resolver_dns"
 	dnstt "github.com/net2share/vaydns/client"
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/adapter/outbound"

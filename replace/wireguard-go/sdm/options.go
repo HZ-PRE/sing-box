@@ -1,4 +1,4 @@
-package hiddify
+package sdm
 
 import (
 	"crypto/rand"

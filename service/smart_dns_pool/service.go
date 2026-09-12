@@ -1,6 +1,6 @@
 // Package smart_dns_pool provides a sing-box service that runs a local DNS
 // server fronting many recursive upstream resolvers, using
-// github.com/hiddify/hmrd_multi_resolver_dns under the hood.
+// github.com/sdm/hmrd_multi_resolver_dns under the hood.
 //
 // Why: dnstt's tunnel sends DNS queries to a single recursive resolver
 // (e.g. `8.8.8.8`). When that resolver gets rate-limited or blocked the
@@ -28,7 +28,7 @@ import (
 	"github.com/sagernet/sing-box/option"
 	E "github.com/sagernet/sing/common/exceptions"
 
-	multidns "github.com/hiddify/hmrd_multi_resolver_dns"
+	multidns "github.com/sdm/hmrd_multi_resolver_dns"
 )
 
 // RegisterService hooks the smart_dns_pool service type into the registry.

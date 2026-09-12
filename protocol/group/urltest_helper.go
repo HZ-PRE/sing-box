@@ -10,7 +10,7 @@ package group
 // 	"github.com/sagernet/sing-box/adapter"
 // 	"github.com/sagernet/sing-box/common/urltest"
 // 	C "github.com/sagernet/sing-box/constant"
-// 	"github.com/sagernet/sing-box/hiddify/ipinfo"
+// 	"github.com/sagernet/sing-box/sdm/ipinfo"
 // 	"github.com/sagernet/sing/common"
 // 	"github.com/sagernet/sing/common/batch"
 // 	N "github.com/sagernet/sing/common/network"

@@ -15,7 +15,7 @@ import (
 	"github.com/sagernet/sing/service"
 	"github.com/sagernet/sing/service/pause"
 	"github.com/sagernet/wireguard-go/conn"
-	"github.com/sagernet/wireguard-go/hiddify"
+	"github.com/sagernet/wireguard-go/sdm"
 	"github.com/sagernet/wireguard-go/ratelimiter"
 	"github.com/sagernet/wireguard-go/rwcancel"
 	"github.com/sagernet/wireguard-go/tun"
@@ -95,7 +95,7 @@ type Device struct {
 	log          *Logger
 	pauseManager pause.Manager
 
-	HNoise hiddify.NoiseOptions //H
+	HNoise sdm.NoiseOptions //H
 	stopCh chan int             //H
 }
 

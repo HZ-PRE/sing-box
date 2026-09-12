@@ -24,7 +24,7 @@ type SmartDNSPoolUpstreamOptions struct {
 
 // SmartDNSPoolServiceOptions configures a `smart_dns_pool` service: a
 // local DNS server (UDP+TCP) that fans queries out to many recursive
-// upstream resolvers using github.com/hiddify/hmrd_multi_resolver_dns.
+// upstream resolvers using github.com/sdm/hmrd_multi_resolver_dns.
 //
 // Typical use: configure this with the recursive resolvers you want to
 // distribute load across, then point dnstt's `resolvers` at the local

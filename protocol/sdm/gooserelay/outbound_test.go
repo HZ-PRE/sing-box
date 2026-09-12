@@ -7,7 +7,7 @@ import (
 
 	"github.com/sagernet/sing-box/log"
 	"github.com/sagernet/sing-box/option"
-	"github.com/sagernet/sing-box/protocol/hiddify/gooserelay"
+	"github.com/sagernet/sing-box/protocol/sdm/gooserelay"
 )
 
 const validHexKey = "0000000000000000000000000000000000000000000000000000000000000000"

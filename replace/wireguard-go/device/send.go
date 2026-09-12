@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/sagernet/wireguard-go/conn"
-	"github.com/sagernet/wireguard-go/hiddify"
+	"github.com/sagernet/wireguard-go/sdm"
 	"github.com/sagernet/wireguard-go/tun"
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/net/ipv4"
@@ -585,7 +585,7 @@ func (peer *Peer) customSend(clist []byte, payload []byte, noModify bool) error 
 	//{GFW-knocker
 	var a2 []byte
 	if len(clist) > 0 {
-		a1 := clist[hiddify.RandBetween(0, int64(len(clist)-1))]
+		a1 := clist[sdm.RandBetween(0, int64(len(clist)-1))]
 		a2 = []byte{a1, 0x00, 0x00, 0x00, 0x01, 0x08}
 	} else {
 		a2 = []byte{0x00, 0x00, 0x00, 0x01, 0x08}
