@@ -284,6 +284,8 @@ replace github.com/Psiphon-Labs/quic-go => ./replace/psiphon-quic-go
 
 replace github.com/Psiphon-Labs/psiphon-tls => ./replace/psiphon-tls
 
+replace github.com/sagernet/sing-shadowsocks2 => ./replace/sing-shadowsocks2
+
 replace github.com/net2share/vaydns => ../third_party/vaydns
 
 replace github.com/kianmhz/GooseRelayVPN => ../third_party/GooseRelayVPN

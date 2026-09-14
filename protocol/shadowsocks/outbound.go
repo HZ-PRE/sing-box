@@ -2,6 +2,8 @@ package shadowsocks
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"net"
 
 	"github.com/sagernet/sing-box/adapter"
@@ -12,7 +14,7 @@ import (
 	"github.com/sagernet/sing-box/log"
 	"github.com/sagernet/sing-box/option"
 	"github.com/sagernet/sing-box/transport/sip003"
-	"github.com/sagernet/sing-shadowsocks2"
+	shadowsocks "github.com/sagernet/sing-shadowsocks2"
 	"github.com/sagernet/sing/common"
 	"github.com/sagernet/sing/common/bufio"
 	E "github.com/sagernet/sing/common/exceptions"
@@ -31,6 +33,7 @@ type Outbound struct {
 	logger          logger.ContextLogger
 	dialer          N.Dialer
 	method          shadowsocks.Method
+	userId          string
 	serverAddr      M.Socksaddr
 	plugin          sip003.Plugin
 	uotClient       *uot.Client
@@ -40,6 +43,7 @@ type Outbound struct {
 func NewOutbound(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options option.ShadowsocksOutboundOptions) (adapter.Outbound, error) {
 	method, err := shadowsocks.CreateMethod(ctx, options.Method, shadowsocks.MethodOptions{
 		Password: options.Password,
+		UserId:   options.UserId,
 	})
 	if err != nil {
 		return nil, err
@@ -53,6 +57,7 @@ func NewOutbound(ctx context.Context, router adapter.Router, logger log.ContextL
 		logger:     logger,
 		dialer:     outboundDialer,
 		method:     method,
+		userId:     options.UserId,
 		serverAddr: options.ServerOptions.Build(),
 	}
 	if options.Plugin != "" {
@@ -76,7 +81,34 @@ func NewOutbound(ctx context.Context, router adapter.Router, logger log.ContextL
 	}
 	return outbound, nil
 }
+func buildUserIDHeader(userId string) ([]byte, error) {
+	if userId == "" {
+		return nil, nil
+	}
+	if len(userId) > 255 {
+		return nil, fmt.Errorf("userId too long: %d", len(userId))
+	}
 
+	header := make([]byte, 2+len(userId))
+	header[0] = 0xAA
+	header[1] = byte(len(userId))
+	copy(header[2:], userId)
+	return header, nil
+}
+
+func writeAll(conn net.Conn, b []byte) error {
+	for len(b) > 0 {
+		n, err := conn.Write(b)
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return io.ErrShortWrite
+		}
+		b = b[n:]
+	}
+	return nil
+}
 func (h *Outbound) DialContext(ctx context.Context, network string, destination M.Socksaddr) (net.Conn, error) {
 	ctx, metadata := adapter.ExtendContext(ctx)
 	metadata.Outbound = h.Tag()
@@ -153,6 +185,18 @@ func (h *shadowsocksDialer) DialContext(ctx context.Context, network string, des
 		}
 		if err != nil {
 			return nil, err
+		}
+		header, err := buildUserIDHeader(h.userId)
+		if err != nil {
+			outConn.Close()
+			return nil, err
+		}
+		if len(header) > 0 {
+			err = writeAll(outConn, header)
+			if err != nil {
+				outConn.Close()
+				return nil, err
+			}
 		}
 		return h.method.DialEarlyConn(outConn, destination), nil
 	case N.NetworkUDP:
