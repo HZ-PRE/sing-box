@@ -9,8 +9,6 @@ import (
 	"github.com/sagernet/sing-box/option"
 	"github.com/sagernet/sing/common"
 	"github.com/sagernet/sing/common/json/badoption"
-
-	"github.com/gofrs/uuid/v5"
 )
 
 func TestECH(t *testing.T) {
@@ -29,16 +27,16 @@ func TestECH(t *testing.T) {
 				},
 			},
 			{
-				Type: C.TypeTrojan,
-				Options: &option.TrojanInboundOptions{
+				Type: C.TypeVLESS,
+				Options: &option.VLESSInboundOptions{
 					ListenOptions: option.ListenOptions{
 						Listen:     common.Ptr(badoption.Addr(netip.IPv4Unspecified())),
 						ListenPort: serverPort,
 					},
-					Users: []option.TrojanUser{
+					Users: []option.VLESSUser{
 						{
-							Name:     "sekai",
-							Password: "password",
+							Name: "sekai",
+							UUID: "00000000-0000-4000-8000-000000000001",
 						},
 					},
 					InboundTLSOptionsContainer: option.InboundTLSOptionsContainer{
@@ -61,14 +59,14 @@ func TestECH(t *testing.T) {
 				Type: C.TypeDirect,
 			},
 			{
-				Type: C.TypeTrojan,
-				Tag:  "trojan-out",
-				Options: &option.TrojanOutboundOptions{
+				Type: C.TypeVLESS,
+				Tag:  "vless-out",
+				Options: &option.VLESSOutboundOptions{
 					ServerOptions: option.ServerOptions{
 						Server:     "127.0.0.1",
 						ServerPort: serverPort,
 					},
-					Password: "password",
+					UUID: "00000000-0000-4000-8000-000000000001",
 					OutboundTLSOptionsContainer: option.OutboundTLSOptionsContainer{
 						TLS: &option.OutboundTLSOptions{
 							Enabled:         true,
@@ -95,7 +93,7 @@ func TestECH(t *testing.T) {
 							Action: C.RuleActionTypeRoute,
 
 							RouteOptions: option.RouteActionOptions{
-								Outbound: "trojan-out",
+								Outbound: "vless-out",
 							},
 						},
 					},
@@ -104,184 +102,4 @@ func TestECH(t *testing.T) {
 		},
 	})
 	testSuit(t, clientPort, testPort)
-}
-
-func TestECHQUIC(t *testing.T) {
-	_, certPem, keyPem := createSelfSignedCertificate(t, "example.org")
-	echConfig, echKey := common.Must2(tls.ECHKeygenDefault("not.example.org"))
-	startInstance(t, option.Options{
-		Inbounds: []option.Inbound{
-			{
-				Type: C.TypeMixed,
-				Tag:  "mixed-in",
-				Options: &option.HTTPMixedInboundOptions{
-					ListenOptions: option.ListenOptions{
-						Listen:     common.Ptr(badoption.Addr(netip.IPv4Unspecified())),
-						ListenPort: clientPort,
-					},
-				},
-			},
-			{
-				Type: C.TypeTUIC,
-				Options: &option.TUICInboundOptions{
-					ListenOptions: option.ListenOptions{
-						Listen:     common.Ptr(badoption.Addr(netip.IPv4Unspecified())),
-						ListenPort: serverPort,
-					},
-					Users: []option.TUICUser{{
-						UUID: uuid.Nil.String(),
-					}},
-					InboundTLSOptionsContainer: option.InboundTLSOptionsContainer{
-						TLS: &option.InboundTLSOptions{
-							Enabled:         true,
-							ServerName:      "example.org",
-							CertificatePath: certPem,
-							KeyPath:         keyPem,
-							ECH: &option.InboundECHOptions{
-								Enabled: true,
-								Key:     []string{echKey},
-							},
-						},
-					},
-				},
-			},
-		},
-		Outbounds: []option.Outbound{
-			{
-				Type: C.TypeDirect,
-			},
-			{
-				Type: C.TypeTUIC,
-				Tag:  "tuic-out",
-				Options: &option.TUICOutboundOptions{
-					ServerOptions: option.ServerOptions{
-						Server:     "127.0.0.1",
-						ServerPort: serverPort,
-					},
-					UUID: uuid.Nil.String(),
-					OutboundTLSOptionsContainer: option.OutboundTLSOptionsContainer{
-						TLS: &option.OutboundTLSOptions{
-							Enabled:         true,
-							ServerName:      "example.org",
-							CertificatePath: certPem,
-							ECH: &option.OutboundECHOptions{
-								Enabled: true,
-								Config:  []string{echConfig},
-							},
-						},
-					},
-				},
-			},
-		},
-		Route: &option.RouteOptions{
-			Rules: []option.Rule{
-				{
-					Type: C.RuleTypeDefault,
-					DefaultOptions: option.DefaultRule{
-						RawDefaultRule: option.RawDefaultRule{
-							Inbound: []string{"mixed-in"},
-						},
-						RuleAction: option.RuleAction{
-							Action: C.RuleActionTypeRoute,
-
-							RouteOptions: option.RouteActionOptions{
-								Outbound: "tuic-out",
-							},
-						},
-					},
-				},
-			},
-		},
-	})
-	testSuitLargeUDP(t, clientPort, testPort)
-}
-
-func TestECHHysteria2(t *testing.T) {
-	_, certPem, keyPem := createSelfSignedCertificate(t, "example.org")
-	echConfig, echKey := common.Must2(tls.ECHKeygenDefault("not.example.org"))
-	startInstance(t, option.Options{
-		Inbounds: []option.Inbound{
-			{
-				Type: C.TypeMixed,
-				Tag:  "mixed-in",
-				Options: &option.HTTPMixedInboundOptions{
-					ListenOptions: option.ListenOptions{
-						Listen:     common.Ptr(badoption.Addr(netip.IPv4Unspecified())),
-						ListenPort: clientPort,
-					},
-				},
-			},
-			{
-				Type: C.TypeHysteria2,
-				Options: &option.Hysteria2InboundOptions{
-					ListenOptions: option.ListenOptions{
-						Listen:     common.Ptr(badoption.Addr(netip.IPv4Unspecified())),
-						ListenPort: serverPort,
-					},
-					Users: []option.Hysteria2User{{
-						Password: "password",
-					}},
-					InboundTLSOptionsContainer: option.InboundTLSOptionsContainer{
-						TLS: &option.InboundTLSOptions{
-							Enabled:         true,
-							ServerName:      "example.org",
-							CertificatePath: certPem,
-							KeyPath:         keyPem,
-							ECH: &option.InboundECHOptions{
-								Enabled: true,
-								Key:     []string{echKey},
-							},
-						},
-					},
-				},
-			},
-		},
-		Outbounds: []option.Outbound{
-			{
-				Type: C.TypeDirect,
-			},
-			{
-				Type: C.TypeHysteria2,
-				Tag:  "hy2-out",
-				Options: &option.Hysteria2OutboundOptions{
-					ServerOptions: option.ServerOptions{
-						Server:     "127.0.0.1",
-						ServerPort: serverPort,
-					},
-					Password: "password",
-					OutboundTLSOptionsContainer: option.OutboundTLSOptionsContainer{
-						TLS: &option.OutboundTLSOptions{
-							Enabled:         true,
-							ServerName:      "example.org",
-							CertificatePath: certPem,
-							ECH: &option.OutboundECHOptions{
-								Enabled: true,
-								Config:  []string{echConfig},
-							},
-						},
-					},
-				},
-			},
-		},
-		Route: &option.RouteOptions{
-			Rules: []option.Rule{
-				{
-					Type: C.RuleTypeDefault,
-					DefaultOptions: option.DefaultRule{
-						RawDefaultRule: option.RawDefaultRule{
-							Inbound: []string{"mixed-in"},
-						},
-						RuleAction: option.RuleAction{
-							Action: C.RuleActionTypeRoute,
-
-							RouteOptions: option.RouteActionOptions{
-								Outbound: "hy2-out",
-							},
-						},
-					},
-				},
-			},
-		},
-	})
-	testSuitLargeUDP(t, clientPort, testPort)
 }

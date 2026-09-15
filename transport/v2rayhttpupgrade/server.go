@@ -25,6 +25,7 @@ import (
 var _ adapter.V2RayServerTransport = (*Server)(nil)
 
 type Server struct {
+	cancel     context.CancelFunc
 	ctx        context.Context
 	logger     logger.ContextLogger
 	tlsConfig  tls.ServerConfig
@@ -36,7 +37,9 @@ type Server struct {
 }
 
 func NewServer(ctx context.Context, logger logger.ContextLogger, options option.V2RayHTTPUpgradeOptions, tlsConfig tls.ServerConfig, handler adapter.V2RayServerTransportHandler) (*Server, error) {
+	ctx, cancel := context.WithCancel(ctx)
 	server := &Server{
+		cancel:    cancel,
 		ctx:       ctx,
 		logger:    logger,
 		tlsConfig: tlsConfig,
@@ -112,7 +115,7 @@ func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		s.invalidRequest(writer, request, http.StatusInternalServerError, E.Cause(err, "hijack failed"))
 		return
 	}
-	s.handler.NewConnectionEx(v2rayhttp.DupContext(request.Context()), conn, sHttp.SourceAddress(request), M.Socksaddr{}, nil)
+	s.handler.NewConnectionEx(v2rayhttp.DupContext(s.ctx, request.Context()), conn, sHttp.SourceAddress(request), M.Socksaddr{}, nil)
 }
 
 func (s *Server) invalidRequest(writer http.ResponseWriter, request *http.Request, statusCode int, err error) {
@@ -141,5 +144,6 @@ func (s *Server) ServePacket(listener net.PacketConn) error {
 }
 
 func (s *Server) Close() error {
+	s.cancel()
 	return common.Close(common.PtrOrNil(s.httpServer))
 }

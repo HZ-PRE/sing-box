@@ -29,34 +29,18 @@ const (
 	ImageShadowsocksRustServer = "ghcr.io/shadowsocks/ssserver-rust:latest"
 	ImageShadowsocksRustClient = "ghcr.io/shadowsocks/sslocal-rust:latest"
 	ImageV2RayCore             = "v2fly/v2fly-core:latest"
-	ImageTrojan                = "trojangfw/trojan:latest"
-	ImageNaive                 = "pocat/naiveproxy:client"
-	ImageBoringTun             = "ghcr.io/ntkme/boringtun:edge"
-	ImageHysteria              = "tobyxdd/hysteria:v1.3.5"
-	ImageHysteria2             = "tobyxdd/hysteria:v2"
 	ImageNginx                 = "nginx:stable"
-	ImageShadowTLS             = "ghcr.io/ihciah/shadow-tls:latest"
 	ImageXRayCore              = "teddysun/xray:latest"
 	ImageShadowsocksLegacy     = "mritd/shadowsocks:latest"
-	ImageTUICServer            = "kilvn/tuic-server:latest"
-	ImageTUICClient            = "kilvn/tuic-client:latest"
 )
 
 var allImages = []string{
 	ImageShadowsocksRustServer,
 	ImageShadowsocksRustClient,
 	ImageV2RayCore,
-	ImageTrojan,
-	ImageNaive,
-	ImageBoringTun,
-	ImageHysteria,
-	ImageHysteria2,
 	ImageNginx,
-	ImageShadowTLS,
 	ImageXRayCore,
 	ImageShadowsocksLegacy,
-	ImageTUICServer,
-	ImageTUICClient,
 }
 
 var localIP = netip.MustParseAddr("127.0.0.1")

@@ -12,7 +12,7 @@ import (
 	"github.com/gofrs/uuid/v5"
 )
 
-func TestTUICDomainUDP(t *testing.T) {
+func TestVLESSDomainUDP(t *testing.T) {
 	_, certPem, keyPem := createSelfSignedCertificate(t, "example.org")
 	startInstance(t, option.Options{
 		Inbounds: []option.Inbound{
@@ -27,13 +27,13 @@ func TestTUICDomainUDP(t *testing.T) {
 				},
 			},
 			{
-				Type: C.TypeTUIC,
-				Options: &option.TUICInboundOptions{
+				Type: C.TypeVLESS,
+				Options: &option.VLESSInboundOptions{
 					ListenOptions: option.ListenOptions{
 						Listen:     common.Ptr(badoption.Addr(netip.IPv4Unspecified())),
 						ListenPort: serverPort,
 					},
-					Users: []option.TUICUser{{
+					Users: []option.VLESSUser{{
 						UUID: uuid.Nil.String(),
 					}},
 					InboundTLSOptionsContainer: option.InboundTLSOptionsContainer{
@@ -52,9 +52,9 @@ func TestTUICDomainUDP(t *testing.T) {
 				Type: C.TypeDirect,
 			},
 			{
-				Type: C.TypeTUIC,
-				Tag:  "tuic-out",
-				Options: &option.TUICOutboundOptions{
+				Type: C.TypeVLESS,
+				Tag:  "vless-out",
+				Options: &option.VLESSOutboundOptions{
 					ServerOptions: option.ServerOptions{
 						Server:     "127.0.0.1",
 						ServerPort: serverPort,
@@ -82,7 +82,7 @@ func TestTUICDomainUDP(t *testing.T) {
 							Action: C.RuleActionTypeRoute,
 
 							RouteOptions: option.RouteActionOptions{
-								Outbound: "tuic-out",
+								Outbound: "vless-out",
 							},
 						},
 					},

@@ -94,7 +94,6 @@ func DNSTransportRegistry() *dns.TransportRegistry {
 
 	registerQUICTransports(registry)
 	registerDHCPTransport(registry)
-	registerTailscaleTransport(registry)
 
 	return registry
 }
@@ -106,7 +105,6 @@ func ServiceRegistry() *service.Registry {
 	ssmapi.RegisterService(registry)
 	smartdnspool.RegisterService(registry) //H
 
-	registerDERPService(registry)
 	registerCCMService(registry)
 	registerOCMService(registry)
 	registerOOMKillerService(registry)
@@ -118,7 +116,6 @@ func CertificateProviderRegistry() *certificate.Registry {
 	registry := certificate.NewRegistry()
 
 	registerACMECertificateProvider(registry)
-	registerTailscaleCertificateProvider(registry)
 	originca.RegisterCertificateProvider(registry)
 
 	return registry

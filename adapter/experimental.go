@@ -50,9 +50,6 @@ type CacheFile interface {
 	StoreRDRC() bool
 	RDRCStore
 
-	StoreWARPConfig() bool
-	StoreMASQUEConfig() bool
-
 	StoreDNS() bool
 	DNSCacheStore
 

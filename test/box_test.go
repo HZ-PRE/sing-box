@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -15,7 +17,6 @@ import (
 	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing-box/include"
 	"github.com/sagernet/sing-box/option"
-	"github.com/sagernet/sing/common/bufio"
 	"github.com/sagernet/sing/common/debug"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
@@ -26,7 +27,8 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	goleak.VerifyTestMain(m)
+	// Package-level log workers live for the process; still detect workers leaked by tests.
+	goleak.VerifyTestMain(m, goleak.IgnoreCurrent())
 }
 
 var globalCtx context.Context
@@ -86,25 +88,41 @@ func testSuit(t *testing.T, clientPort uint16, testPort uint16) {
 }
 
 func testQUIC(t *testing.T, clientPort uint16) {
+	certificateServer := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	certificates := certificateServer.TLS.Certificates
+	roots := x509.NewCertPool()
+	roots.AddCert(certificateServer.Certificate())
+	certificateServer.Close()
+	listener, err := quic.ListenAddr("127.0.0.1:0", &tls.Config{Certificates: certificates, NextProtos: []string{http3.NextProtoH3}}, nil)
+	require.NoError(t, err)
+	server := &http3.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, "quic-loopback-ok") })}
+	serverDone := make(chan error, 1)
+	go func() { serverDone <- server.ServeListener(listener) }()
+	defer func() { _ = server.Close(); _ = listener.Close(); <-serverDone }()
 	dialer := socks.NewClient(N.SystemDialer, M.ParseSocksaddrHostPort("127.0.0.1", clientPort), socks.Version5, "", "")
 	client := &http.Client{
+		Timeout: 10 * time.Second,
 		Transport: &http3.Transport{
+			TLSClientConfig: &tls.Config{RootCAs: roots, ServerName: "example.com"},
 			Dial: func(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error) {
 				destination := M.ParseSocksaddr(addr)
 				udpConn, err := dialer.DialContext(ctx, N.NetworkUDP, destination)
 				if err != nil {
 					return nil, err
 				}
+				t.Cleanup(func() { _ = udpConn.Close() })
 				return quic.DialEarly(ctx, udpConn.(net.PacketConn), destination, tlsCfg, cfg)
 			},
 		},
 	}
-	response, err := client.Get("https://cloudflare.com/cdn-cgi/trace")
+	defer client.Transport.(*http3.Transport).Close()
+	response, err := client.Get("https://" + listener.Addr().String() + "/probe")
 	require.NoError(t, err)
+	defer response.Body.Close()
 	require.Equal(t, http.StatusOK, response.StatusCode)
 	content, err := io.ReadAll(response.Body)
 	require.NoError(t, err)
-	println(string(content))
+	require.Equal(t, "quic-loopback-ok", string(content))
 }
 
 func testSuitLargeUDP(t *testing.T, clientPort uint16, testPort uint16) {
@@ -161,22 +179,4 @@ func testSuitSimple1(t *testing.T, clientPort uint16, testPort uint16) {
 	if !C.IsDarwin {
 		require.NoError(t, testLargeDataWithPacketConn(t, testPort, dialUDP))
 	}
-}
-
-func testSuitWg(t *testing.T, clientPort uint16, testPort uint16) {
-	dialer := socks.NewClient(N.SystemDialer, M.ParseSocksaddrHostPort("127.0.0.1", clientPort), socks.Version5, "", "")
-	dialTCP := func() (net.Conn, error) {
-		return dialer.DialContext(context.Background(), "tcp", M.ParseSocksaddrHostPort("10.0.0.1", testPort))
-	}
-	dialUDP := func() (net.PacketConn, error) {
-		conn, err := dialer.DialContext(context.Background(), "udp", M.ParseSocksaddrHostPort("10.0.0.1", testPort))
-		if err != nil {
-			return nil, err
-		}
-		return bufio.NewUnbindPacketConn(conn), nil
-	}
-	require.NoError(t, testPingPongWithConn(t, testPort, dialTCP))
-	require.NoError(t, testPingPongWithPacketConn(t, testPort, dialUDP))
-	require.NoError(t, testLargeDataWithConn(t, testPort, dialTCP))
-	require.NoError(t, testLargeDataWithPacketConn(t, testPort, dialUDP))
 }

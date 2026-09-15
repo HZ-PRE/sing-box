@@ -31,13 +31,13 @@ func testV2RayGRPCInbound(t *testing.T, forceLite bool) {
 	startInstance(t, option.Options{
 		Inbounds: []option.Inbound{
 			{
-				Type: C.TypeVMess,
-				Options: &option.VMessInboundOptions{
+				Type: C.TypeVLESS,
+				Options: &option.VLESSInboundOptions{
 					ListenOptions: option.ListenOptions{
 						Listen:     common.Ptr(badoption.Addr(netip.IPv4Unspecified())),
 						ListenPort: serverPort,
 					},
-					Users: []option.VMessUser{
+					Users: []option.VLESSUser{
 						{
 							Name: "sekai",
 							UUID: userId.String(),
@@ -62,7 +62,7 @@ func testV2RayGRPCInbound(t *testing.T, forceLite bool) {
 			},
 		},
 	})
-	content, err := os.ReadFile("config/vmess-grpc-client.json")
+	content, err := os.ReadFile("config/vless-grpc-client.json")
 	require.NoError(t, err)
 	config, err := ajson.Unmarshal(content)
 	require.NoError(t, err)
@@ -104,7 +104,7 @@ func testV2RayGRPCOutbound(t *testing.T, forceLite bool) {
 	require.NoError(t, err)
 	_, certPem, keyPem := createSelfSignedCertificate(t, "example.org")
 
-	content, err := os.ReadFile("config/vmess-grpc-server.json")
+	content, err := os.ReadFile("config/vless-grpc-server.json")
 	require.NoError(t, err)
 	config, err := ajson.Unmarshal(content)
 	require.NoError(t, err)
@@ -142,15 +142,14 @@ func testV2RayGRPCOutbound(t *testing.T, forceLite bool) {
 		},
 		Outbounds: []option.Outbound{
 			{
-				Type: C.TypeVMess,
-				Tag:  "vmess-out",
-				Options: &option.VMessOutboundOptions{
+				Type: C.TypeVLESS,
+				Tag:  "vless-out",
+				Options: &option.VLESSOutboundOptions{
 					ServerOptions: option.ServerOptions{
 						Server:     "127.0.0.1",
 						ServerPort: serverPort,
 					},
-					UUID:     userId.String(),
-					Security: "zero",
+					UUID: userId.String(),
 					OutboundTLSOptionsContainer: option.OutboundTLSOptionsContainer{
 						TLS: &option.OutboundTLSOptions{
 							Enabled:         true,

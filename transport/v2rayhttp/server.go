@@ -30,6 +30,7 @@ import (
 var _ adapter.V2RayServerTransport = (*Server)(nil)
 
 type Server struct {
+	cancel     context.CancelFunc
 	ctx        context.Context
 	logger     logger.ContextLogger
 	tlsConfig  tls.ServerConfig
@@ -44,7 +45,9 @@ type Server struct {
 }
 
 func NewServer(ctx context.Context, logger logger.ContextLogger, options option.V2RayHTTPOptions, tlsConfig tls.ServerConfig, handler adapter.V2RayServerTransportHandler) (*Server, error) {
+	ctx, cancel := context.WithCancel(ctx)
 	server := &Server{
+		cancel:    cancel,
 		ctx:       ctx,
 		tlsConfig: tlsConfig,
 		logger:    logger,
@@ -133,7 +136,7 @@ func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		if requestBody != nil {
 			conn = bufio.NewCachedConn(conn, requestBody)
 		}
-		s.handler.NewConnectionEx(DupContext(request.Context()), conn, source, M.Socksaddr{}, nil)
+		s.handler.NewConnectionEx(DupContext(s.ctx, request.Context()), conn, source, M.Socksaddr{}, nil)
 	} else {
 		writer.WriteHeader(http.StatusOK)
 		flusher := writer.(http.Flusher)
@@ -179,5 +182,6 @@ func (s *Server) ServePacket(listener net.PacketConn) error {
 }
 
 func (s *Server) Close() error {
+	s.cancel()
 	return common.Close(common.PtrOrNil(s.httpServer))
 }

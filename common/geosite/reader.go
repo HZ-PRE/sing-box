@@ -109,6 +109,9 @@ func (r *Reader) Read(code string) ([]Item, error) {
 	}
 	r.bufferedReader.Reset(r.reader)
 	itemList := make([]Item, r.domainLength[code])
+	if len(itemList) == 0 {
+		return itemList, nil
+	}
 	err = varbin.Read(r.bufferedReader, binary.BigEndian, &itemList)
 	if err != nil {
 		return nil, err

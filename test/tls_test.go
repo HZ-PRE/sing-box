@@ -25,16 +25,16 @@ func TestUTLS(t *testing.T) {
 				},
 			},
 			{
-				Type: C.TypeTrojan,
-				Options: &option.TrojanInboundOptions{
+				Type: C.TypeVLESS,
+				Options: &option.VLESSInboundOptions{
 					ListenOptions: option.ListenOptions{
 						Listen:     common.Ptr(badoption.Addr(netip.IPv4Unspecified())),
 						ListenPort: serverPort,
 					},
-					Users: []option.TrojanUser{
+					Users: []option.VLESSUser{
 						{
-							Name:     "sekai",
-							Password: "password",
+							Name: "sekai",
+							UUID: "00000000-0000-4000-8000-000000000001",
 						},
 					},
 					InboundTLSOptionsContainer: option.InboundTLSOptionsContainer{
@@ -53,14 +53,14 @@ func TestUTLS(t *testing.T) {
 				Type: C.TypeDirect,
 			},
 			{
-				Type: C.TypeTrojan,
-				Tag:  "trojan-out",
-				Options: &option.TrojanOutboundOptions{
+				Type: C.TypeVLESS,
+				Tag:  "vless-out",
+				Options: &option.VLESSOutboundOptions{
 					ServerOptions: option.ServerOptions{
 						Server:     "127.0.0.1",
 						ServerPort: serverPort,
 					},
-					Password: "password",
+					UUID: "00000000-0000-4000-8000-000000000001",
 					OutboundTLSOptionsContainer: option.OutboundTLSOptionsContainer{
 						TLS: &option.OutboundTLSOptions{
 							Enabled:         true,
@@ -87,7 +87,7 @@ func TestUTLS(t *testing.T) {
 							Action: C.RuleActionTypeRoute,
 
 							RouteOptions: option.RouteActionOptions{
-								Outbound: "trojan-out",
+								Outbound: "vless-out",
 							},
 						},
 					},

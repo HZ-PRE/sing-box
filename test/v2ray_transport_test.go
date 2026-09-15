@@ -33,15 +33,12 @@ func testV2RayTransportSelf(t *testing.T, transport *option.V2RayTransportOption
 }
 
 func testV2RayTransportSelfWith(t *testing.T, server, client *option.V2RayTransportOptions) {
-	t.Run("vmess", func(t *testing.T) {
-		testVMessTransportSelf(t, server, client)
-	})
-	t.Run("trojan", func(t *testing.T) {
-		testTrojanTransportSelf(t, server, client)
+	t.Run("vless", func(t *testing.T) {
+		testVLESSTransportSelf(t, server, client)
 	})
 }
 
-func testVMessTransportSelf(t *testing.T, server *option.V2RayTransportOptions, client *option.V2RayTransportOptions) {
+func testVLESSTransportSelf(t *testing.T, server *option.V2RayTransportOptions, client *option.V2RayTransportOptions) {
 	user, err := uuid.DefaultGenerator.NewV4()
 	require.NoError(t, err)
 	_, certPem, keyPem := createSelfSignedCertificate(t, "example.org")
@@ -58,13 +55,13 @@ func testVMessTransportSelf(t *testing.T, server *option.V2RayTransportOptions, 
 				},
 			},
 			{
-				Type: C.TypeVMess,
-				Options: &option.VMessInboundOptions{
+				Type: C.TypeVLESS,
+				Options: &option.VLESSInboundOptions{
 					ListenOptions: option.ListenOptions{
 						Listen:     common.Ptr(badoption.Addr(netip.IPv4Unspecified())),
 						ListenPort: serverPort,
 					},
-					Users: []option.VMessUser{
+					Users: []option.VLESSUser{
 						{
 							Name: "sekai",
 							UUID: user.String(),
@@ -87,15 +84,14 @@ func testVMessTransportSelf(t *testing.T, server *option.V2RayTransportOptions, 
 				Type: C.TypeDirect,
 			},
 			{
-				Type: C.TypeVMess,
-				Tag:  "vmess-out",
-				Options: &option.VMessOutboundOptions{
+				Type: C.TypeVLESS,
+				Tag:  "vless-out",
+				Options: &option.VLESSOutboundOptions{
 					ServerOptions: option.ServerOptions{
 						Server:     "127.0.0.1",
 						ServerPort: serverPort,
 					},
-					UUID:     user.String(),
-					Security: "zero",
+					UUID: user.String(),
 					OutboundTLSOptionsContainer: option.OutboundTLSOptionsContainer{
 						TLS: &option.OutboundTLSOptions{
 							Enabled:         true,
@@ -119,7 +115,7 @@ func testVMessTransportSelf(t *testing.T, server *option.V2RayTransportOptions, 
 							Action: C.RuleActionTypeRoute,
 
 							RouteOptions: option.RouteActionOptions{
-								Outbound: "vmess-out",
+								Outbound: "vless-out",
 							},
 						},
 					},
@@ -130,95 +126,7 @@ func testVMessTransportSelf(t *testing.T, server *option.V2RayTransportOptions, 
 	testSuit(t, clientPort, testPort)
 }
 
-func testTrojanTransportSelf(t *testing.T, server *option.V2RayTransportOptions, client *option.V2RayTransportOptions) {
-	user, err := uuid.DefaultGenerator.NewV4()
-	require.NoError(t, err)
-	_, certPem, keyPem := createSelfSignedCertificate(t, "example.org")
-	startInstance(t, option.Options{
-		Inbounds: []option.Inbound{
-			{
-				Type: C.TypeMixed,
-				Tag:  "mixed-in",
-				Options: &option.HTTPMixedInboundOptions{
-					ListenOptions: option.ListenOptions{
-						Listen:     common.Ptr(badoption.Addr(netip.IPv4Unspecified())),
-						ListenPort: clientPort,
-					},
-				},
-			},
-			{
-				Type: C.TypeTrojan,
-				Options: &option.TrojanInboundOptions{
-					ListenOptions: option.ListenOptions{
-						Listen:     common.Ptr(badoption.Addr(netip.IPv4Unspecified())),
-						ListenPort: serverPort,
-					},
-					Users: []option.TrojanUser{
-						{
-							Name:     "sekai",
-							Password: user.String(),
-						},
-					},
-					InboundTLSOptionsContainer: option.InboundTLSOptionsContainer{
-						TLS: &option.InboundTLSOptions{
-							Enabled:         true,
-							ServerName:      "example.org",
-							CertificatePath: certPem,
-							KeyPath:         keyPem,
-						},
-					},
-					Transport: server,
-				},
-			},
-		},
-		Outbounds: []option.Outbound{
-			{
-				Type: C.TypeDirect,
-			},
-			{
-				Type: C.TypeTrojan,
-				Tag:  "vmess-out",
-				Options: &option.TrojanOutboundOptions{
-					ServerOptions: option.ServerOptions{
-						Server:     "127.0.0.1",
-						ServerPort: serverPort,
-					},
-					Password: user.String(),
-					OutboundTLSOptionsContainer: option.OutboundTLSOptionsContainer{
-						TLS: &option.OutboundTLSOptions{
-							Enabled:         true,
-							ServerName:      "example.org",
-							CertificatePath: certPem,
-						},
-					},
-					Transport: client,
-				},
-			},
-		},
-		Route: &option.RouteOptions{
-			Rules: []option.Rule{
-				{
-					Type: C.RuleTypeDefault,
-					DefaultOptions: option.DefaultRule{
-						RawDefaultRule: option.RawDefaultRule{
-							Inbound: []string{"mixed-in"},
-						},
-						RuleAction: option.RuleAction{
-							Action: C.RuleActionTypeRoute,
-
-							RouteOptions: option.RouteActionOptions{
-								Outbound: "vmess-out",
-							},
-						},
-					},
-				},
-			},
-		},
-	})
-	testSuit(t, clientPort, testPort)
-}
-
-func TestVMessQUICSelf(t *testing.T) {
+func TestVLESSQUICSelf(t *testing.T) {
 	transport := &option.V2RayTransportOptions{
 		Type: C.V2RayTransportTypeQUIC,
 	}
@@ -238,13 +146,13 @@ func TestVMessQUICSelf(t *testing.T) {
 				},
 			},
 			{
-				Type: C.TypeVMess,
-				Options: &option.VMessInboundOptions{
+				Type: C.TypeVLESS,
+				Options: &option.VLESSInboundOptions{
 					ListenOptions: option.ListenOptions{
 						Listen:     common.Ptr(badoption.Addr(netip.IPv4Unspecified())),
 						ListenPort: serverPort,
 					},
-					Users: []option.VMessUser{
+					Users: []option.VLESSUser{
 						{
 							Name: "sekai",
 							UUID: user.String(),
@@ -267,15 +175,14 @@ func TestVMessQUICSelf(t *testing.T) {
 				Type: C.TypeDirect,
 			},
 			{
-				Type: C.TypeVMess,
-				Tag:  "vmess-out",
-				Options: &option.VMessOutboundOptions{
+				Type: C.TypeVLESS,
+				Tag:  "vless-out",
+				Options: &option.VLESSOutboundOptions{
 					ServerOptions: option.ServerOptions{
 						Server:     "127.0.0.1",
 						ServerPort: serverPort,
 					},
-					UUID:     user.String(),
-					Security: "zero",
+					UUID: user.String(),
 					OutboundTLSOptionsContainer: option.OutboundTLSOptionsContainer{
 						TLS: &option.OutboundTLSOptions{
 							Enabled:         true,
@@ -299,7 +206,7 @@ func TestVMessQUICSelf(t *testing.T) {
 							Action: C.RuleActionTypeRoute,
 
 							RouteOptions: option.RouteActionOptions{
-								Outbound: "vmess-out",
+								Outbound: "vless-out",
 							},
 						},
 					},
@@ -326,13 +233,13 @@ func testV2RayTransportNOTLSSelf(t *testing.T, transport *option.V2RayTransportO
 				},
 			},
 			{
-				Type: C.TypeVMess,
-				Options: &option.VMessInboundOptions{
+				Type: C.TypeVLESS,
+				Options: &option.VLESSInboundOptions{
 					ListenOptions: option.ListenOptions{
 						Listen:     common.Ptr(badoption.Addr(netip.IPv4Unspecified())),
 						ListenPort: serverPort,
 					},
-					Users: []option.VMessUser{
+					Users: []option.VLESSUser{
 						{
 							Name: "sekai",
 							UUID: user.String(),
@@ -347,15 +254,14 @@ func testV2RayTransportNOTLSSelf(t *testing.T, transport *option.V2RayTransportO
 				Type: C.TypeDirect,
 			},
 			{
-				Type: C.TypeVMess,
-				Tag:  "vmess-out",
-				Options: &option.VMessOutboundOptions{
+				Type: C.TypeVLESS,
+				Tag:  "vless-out",
+				Options: &option.VLESSOutboundOptions{
 					ServerOptions: option.ServerOptions{
 						Server:     "127.0.0.1",
 						ServerPort: serverPort,
 					},
 					UUID:      user.String(),
-					Security:  "zero",
 					Transport: transport,
 				},
 			},
@@ -372,7 +278,7 @@ func testV2RayTransportNOTLSSelf(t *testing.T, transport *option.V2RayTransportO
 							Action: C.RuleActionTypeRoute,
 
 							RouteOptions: option.RouteActionOptions{
-								Outbound: "vmess-out",
+								Outbound: "vless-out",
 							},
 						},
 					},

@@ -68,11 +68,8 @@ nav:
       - Proxy:
           - Server: manual/proxy/server.md
           - Client: manual/proxy/client.md
-      #          - TUN: manual/proxy/tun.md
       - Proxy Protocol:
           - Shadowsocks: manual/proxy-protocol/shadowsocks.md
-          - Trojan: manual/proxy-protocol/trojan.md
-          - Hysteria 2: manual/proxy-protocol/hysteria2.md
       - Misc:
           - TunnelVision: manual/misc/tunnelvision.md
   - Configuration:
@@ -95,7 +92,6 @@ nav:
               - DHCP: configuration/dns/server/dhcp.md
               - mDNS: configuration/dns/server/mdns.md
               - FakeIP: configuration/dns/server/fakeip.md
-              - Tailscale: configuration/dns/server/tailscale.md
               - Resolved: configuration/dns/server/resolved.md
           - DNS Rule: configuration/dns/rule.md
           - DNS Rule Action: configuration/dns/rule_action.md
@@ -129,7 +125,6 @@ nav:
           - Certificate Provider:
               - configuration/shared/certificate-provider/index.md
               - ACME: configuration/shared/certificate-provider/acme.md
-              - Tailscale: configuration/shared/certificate-provider/tailscale.md
               - Cloudflare Origin CA: configuration/shared/certificate-provider/cloudflare-origin-ca.md
           - DNS01 Challenge Fields: configuration/shared/dns01_challenge.md
           - Pre-match: configuration/shared/pre-match.md
@@ -141,8 +136,6 @@ nav:
           - Neighbor Resolution: configuration/shared/neighbor.md
       - Endpoint:
           - configuration/endpoint/index.md
-          - WireGuard: configuration/endpoint/wireguard.md
-          - Tailscale: configuration/endpoint/tailscale.md
       - Inbound:
           - configuration/inbound/index.md
           - Direct: configuration/inbound/direct.md
@@ -150,16 +143,7 @@ nav:
           - SOCKS: configuration/inbound/socks.md
           - HTTP: configuration/inbound/http.md
           - Shadowsocks: configuration/inbound/shadowsocks.md
-          - Snell: configuration/inbound/snell.md
-          - VMess: configuration/inbound/vmess.md
-          - Trojan: configuration/inbound/trojan.md
-          - Naive: configuration/inbound/naive.md
-          - Hysteria: configuration/inbound/hysteria.md
-          - ShadowTLS: configuration/inbound/shadowtls.md
           - VLESS: configuration/inbound/vless.md
-          - TUIC: configuration/inbound/tuic.md
-          - Hysteria2: configuration/inbound/hysteria2.md
-          - AnyTLS: configuration/inbound/anytls.md
           - Tun: configuration/inbound/tun.md
           - Redirect: configuration/inbound/redirect.md
           - TProxy: configuration/inbound/tproxy.md
@@ -171,19 +155,7 @@ nav:
           - SOCKS: configuration/outbound/socks.md
           - HTTP: configuration/outbound/http.md
           - Shadowsocks: configuration/outbound/shadowsocks.md
-          - Snell: configuration/outbound/snell.md
-          - VMess: configuration/outbound/vmess.md
-          - Trojan: configuration/outbound/trojan.md
-          - Naive: configuration/outbound/naive.md
-          - WireGuard: configuration/outbound/wireguard.md
-          - Hysteria: configuration/outbound/hysteria.md
-          - ShadowTLS: configuration/outbound/shadowtls.md
           - VLESS: configuration/outbound/vless.md
-          - TUIC: configuration/outbound/tuic.md
-          - Hysteria2: configuration/outbound/hysteria2.md
-          - AnyTLS: configuration/outbound/anytls.md
-          - Tor: configuration/outbound/tor.md
-          - SSH: configuration/outbound/ssh.md
           - DNS: configuration/outbound/dns.md
           - Selector: configuration/outbound/selector.md
           - URLTest: configuration/outbound/urltest.md
@@ -194,7 +166,6 @@ nav:
           - SSM API: configuration/service/ssm-api.md
           - CCM: configuration/service/ccm.md
           - OCM: configuration/service/ocm.md
-          - Hysteria Realm: configuration/service/hysteria-realm.md
 markdown_extensions:
   - toc:
       slugify: !!python/object/apply:pymdownx.slugs.slugify

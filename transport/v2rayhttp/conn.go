@@ -258,10 +258,11 @@ func (w *HTTP2ConnWrapper) Upstream() any {
 	return w.ExtendedConn
 }
 
-func DupContext(ctx context.Context) context.Context {
+// DupContext preserves the transport lifetime after an HTTP request is hijacked.
+func DupContext(parent, ctx context.Context) context.Context {
 	id, loaded := log.IDFromContext(ctx)
 	if !loaded {
-		return context.Background()
+		return parent
 	}
-	return log.ContextWithID(context.Background(), id)
+	return log.ContextWithID(parent, id)
 }

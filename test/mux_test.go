@@ -19,8 +19,8 @@ var muxProtocols = []string{
 	"yamux",
 }
 
-func TestVMessSMux(t *testing.T) {
-	testVMessMux(t, option.OutboundMultiplexOptions{
+func TestVLESSSMux(t *testing.T) {
+	testVLESSMux(t, option.OutboundMultiplexOptions{
 		Enabled:  true,
 		Protocol: "smux",
 	})
@@ -124,7 +124,7 @@ func testShadowsocksMux(t *testing.T, options option.OutboundMultiplexOptions) {
 	testSuit(t, clientPort, testPort)
 }
 
-func testVMessMux(t *testing.T, options option.OutboundMultiplexOptions) {
+func testVLESSMux(t *testing.T, options option.OutboundMultiplexOptions) {
 	user, _ := uuid.NewV4()
 	startInstance(t, option.Options{
 		Inbounds: []option.Inbound{
@@ -139,13 +139,13 @@ func testVMessMux(t *testing.T, options option.OutboundMultiplexOptions) {
 				},
 			},
 			{
-				Type: C.TypeVMess,
-				Options: &option.VMessInboundOptions{
+				Type: C.TypeVLESS,
+				Options: &option.VLESSInboundOptions{
 					ListenOptions: option.ListenOptions{
 						Listen:     common.Ptr(badoption.Addr(netip.IPv4Unspecified())),
 						ListenPort: serverPort,
 					},
-					Users: []option.VMessUser{
+					Users: []option.VLESSUser{
 						{
 							UUID: user.String(),
 						},
@@ -161,14 +161,13 @@ func testVMessMux(t *testing.T, options option.OutboundMultiplexOptions) {
 				Type: C.TypeDirect,
 			},
 			{
-				Type: C.TypeVMess,
-				Tag:  "vmess-out",
-				Options: &option.VMessOutboundOptions{
+				Type: C.TypeVLESS,
+				Tag:  "vless-out",
+				Options: &option.VLESSOutboundOptions{
 					ServerOptions: option.ServerOptions{
 						Server:     "127.0.0.1",
 						ServerPort: serverPort,
 					},
-					Security:  "auto",
 					UUID:      user.String(),
 					Multiplex: &options,
 				},
@@ -186,7 +185,7 @@ func testVMessMux(t *testing.T, options option.OutboundMultiplexOptions) {
 							Action: C.RuleActionTypeRoute,
 
 							RouteOptions: option.RouteActionOptions{
-								Outbound: "vmess-out",
+								Outbound: "vless-out",
 							},
 						},
 					},

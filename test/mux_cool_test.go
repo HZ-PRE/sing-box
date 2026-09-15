@@ -16,7 +16,7 @@ import (
 
 func TestMuxCoolServer(t *testing.T) {
 	userId := newUUID()
-	content, err := os.ReadFile("config/vmess-mux-client.json")
+	content, err := os.ReadFile("config/vless-mux-client.json")
 	require.NoError(t, err)
 	config, err := ajson.Unmarshal(content)
 	require.NoError(t, err)
@@ -41,13 +41,13 @@ func TestMuxCoolServer(t *testing.T) {
 	startInstance(t, option.Options{
 		Inbounds: []option.Inbound{
 			{
-				Type: C.TypeVMess,
-				Options: &option.VMessInboundOptions{
+				Type: C.TypeVLESS,
+				Options: &option.VLESSInboundOptions{
 					ListenOptions: option.ListenOptions{
 						Listen:     common.Ptr(badoption.Addr(netip.IPv4Unspecified())),
 						ListenPort: serverPort,
 					},
-					Users: []option.VMessUser{
+					Users: []option.VLESSUser{
 						{
 							Name: "sekai",
 							UUID: userId.String(),
@@ -63,7 +63,7 @@ func TestMuxCoolServer(t *testing.T) {
 
 func TestMuxCoolClient(t *testing.T) {
 	user := newUUID()
-	content, err := os.ReadFile("config/vmess-server.json")
+	content, err := os.ReadFile("config/vless-server.json")
 	require.NoError(t, err)
 	config, err := ajson.Unmarshal(content)
 	require.NoError(t, err)
@@ -96,14 +96,14 @@ func TestMuxCoolClient(t *testing.T) {
 		},
 		Outbounds: []option.Outbound{
 			{
-				Type: C.TypeVMess,
-				Options: &option.VMessOutboundOptions{
+				Type: C.TypeVLESS,
+				Options: &option.VLESSOutboundOptions{
 					ServerOptions: option.ServerOptions{
 						Server:     "127.0.0.1",
 						ServerPort: serverPort,
 					},
 					UUID:           user.String(),
-					PacketEncoding: "xudp",
+					PacketEncoding: common.Ptr("xudp"),
 				},
 			},
 		},
@@ -126,13 +126,13 @@ func TestMuxCoolSelf(t *testing.T) {
 				},
 			},
 			{
-				Type: C.TypeVMess,
-				Options: &option.VMessInboundOptions{
+				Type: C.TypeVLESS,
+				Options: &option.VLESSInboundOptions{
 					ListenOptions: option.ListenOptions{
 						Listen:     common.Ptr(badoption.Addr(netip.IPv4Unspecified())),
 						ListenPort: serverPort,
 					},
-					Users: []option.VMessUser{
+					Users: []option.VLESSUser{
 						{
 							Name: "sekai",
 							UUID: user.String(),
@@ -146,15 +146,15 @@ func TestMuxCoolSelf(t *testing.T) {
 				Type: C.TypeDirect,
 			},
 			{
-				Type: C.TypeVMess,
-				Tag:  "vmess-out",
-				Options: &option.VMessOutboundOptions{
+				Type: C.TypeVLESS,
+				Tag:  "vless-out",
+				Options: &option.VLESSOutboundOptions{
 					ServerOptions: option.ServerOptions{
 						Server:     "127.0.0.1",
 						ServerPort: serverPort,
 					},
 					UUID:           user.String(),
-					PacketEncoding: "xudp",
+					PacketEncoding: common.Ptr("xudp"),
 				},
 			},
 		},
@@ -170,7 +170,7 @@ func TestMuxCoolSelf(t *testing.T) {
 							Action: C.RuleActionTypeRoute,
 
 							RouteOptions: option.RouteActionOptions{
-								Outbound: "vmess-out",
+								Outbound: "vless-out",
 							},
 						},
 					},

@@ -98,105 +98,7 @@ func TestBrutalShadowsocks(t *testing.T) {
 	testSuit(t, clientPort, testPort)
 }
 
-func TestBrutalTrojan(t *testing.T) {
-	_, certPem, keyPem := createSelfSignedCertificate(t, "example.org")
-	password := mkBase64(t, 16)
-	startInstance(t, option.Options{
-		Inbounds: []option.Inbound{
-			{
-				Type: C.TypeMixed,
-				Tag:  "mixed-in",
-				Options: &option.HTTPMixedInboundOptions{
-					ListenOptions: option.ListenOptions{
-						Listen:     common.Ptr(badoption.Addr(netip.IPv4Unspecified())),
-						ListenPort: clientPort,
-					},
-				},
-			},
-			{
-				Type: C.TypeTrojan,
-				Options: &option.TrojanInboundOptions{
-					ListenOptions: option.ListenOptions{
-						Listen:     common.Ptr(badoption.Addr(netip.IPv4Unspecified())),
-						ListenPort: serverPort,
-					},
-					Users: []option.TrojanUser{{Password: password}},
-					Multiplex: &option.InboundMultiplexOptions{
-						Enabled: true,
-						Brutal: &option.BrutalOptions{
-							Enabled:  true,
-							UpMbps:   100,
-							DownMbps: 100,
-						},
-					},
-					InboundTLSOptionsContainer: option.InboundTLSOptionsContainer{
-						TLS: &option.InboundTLSOptions{
-							Enabled:         true,
-							ServerName:      "example.org",
-							CertificatePath: certPem,
-							KeyPath:         keyPem,
-						},
-					},
-				},
-			},
-		},
-		Outbounds: []option.Outbound{
-			{
-				Type: C.TypeDirect,
-			},
-			{
-				Type: C.TypeTrojan,
-				Tag:  "ss-out",
-				Options: &option.TrojanOutboundOptions{
-					ServerOptions: option.ServerOptions{
-						Server:     "127.0.0.1",
-						ServerPort: serverPort,
-					},
-					Password: password,
-					Multiplex: &option.OutboundMultiplexOptions{
-						Enabled:  true,
-						Protocol: "yamux",
-						Padding:  true,
-						Brutal: &option.BrutalOptions{
-							Enabled:  true,
-							UpMbps:   100,
-							DownMbps: 100,
-						},
-					},
-					OutboundTLSOptionsContainer: option.OutboundTLSOptionsContainer{
-						TLS: &option.OutboundTLSOptions{
-							Enabled:         true,
-							ServerName:      "example.org",
-							CertificatePath: certPem,
-						},
-					},
-				},
-			},
-		},
-		Route: &option.RouteOptions{
-			Rules: []option.Rule{
-				{
-					Type: C.RuleTypeDefault,
-					DefaultOptions: option.DefaultRule{
-						RawDefaultRule: option.RawDefaultRule{
-							Inbound: []string{"mixed-in"},
-						},
-						RuleAction: option.RuleAction{
-							Action: C.RuleActionTypeRoute,
-
-							RouteOptions: option.RouteActionOptions{
-								Outbound: "ss-out",
-							},
-						},
-					},
-				},
-			},
-		},
-	})
-	testSuit(t, clientPort, testPort)
-}
-
-func TestBrutalVMess(t *testing.T) {
+func TestBrutalVLESSMux(t *testing.T) {
 	user, _ := uuid.NewV4()
 	startInstance(t, option.Options{
 		Inbounds: []option.Inbound{
@@ -211,13 +113,13 @@ func TestBrutalVMess(t *testing.T) {
 				},
 			},
 			{
-				Type: C.TypeVMess,
-				Options: &option.VMessInboundOptions{
+				Type: C.TypeVLESS,
+				Options: &option.VLESSInboundOptions{
 					ListenOptions: option.ListenOptions{
 						Listen:     common.Ptr(badoption.Addr(netip.IPv4Unspecified())),
 						ListenPort: serverPort,
 					},
-					Users: []option.VMessUser{{UUID: user.String()}},
+					Users: []option.VLESSUser{{UUID: user.String()}},
 					Multiplex: &option.InboundMultiplexOptions{
 						Enabled: true,
 						Brutal: &option.BrutalOptions{
@@ -234,9 +136,9 @@ func TestBrutalVMess(t *testing.T) {
 				Type: C.TypeDirect,
 			},
 			{
-				Type: C.TypeVMess,
+				Type: C.TypeVLESS,
 				Tag:  "ss-out",
-				Options: &option.VMessOutboundOptions{
+				Options: &option.VLESSOutboundOptions{
 					ServerOptions: option.ServerOptions{
 						Server:     "127.0.0.1",
 						ServerPort: serverPort,

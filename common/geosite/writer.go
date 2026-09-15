@@ -20,7 +20,7 @@ func Write(writer varbin.Writer, domains map[string][]Item) error {
 	for _, code := range keys {
 		index[code] = content.Len()
 		for _, item := range domains[code] {
-			err := varbin.Write(content, binary.BigEndian, item)
+			err := varbin.Write(content, binary.BigEndian, &item)
 			if err != nil {
 				return err
 			}

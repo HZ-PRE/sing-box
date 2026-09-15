@@ -63,10 +63,8 @@ func init() {
 	sharedFlags = append(sharedFlags, "-ldflags", "-X github.com/sagernet/sing-box/constant.Version="+currentTag+" -X internal/godebug.defaultGODEBUG=multipathtcp=0 -s -w -buildid=  -checklinkname=0")
 	debugFlags = append(debugFlags, "-ldflags", "-X github.com/sagernet/sing-box/constant.Version="+currentTag+" -X internal/godebug.defaultGODEBUG=multipathtcp=0 -checklinkname=0")
 
-	sharedTags = append(sharedTags, "with_gvisor", "with_quic", "with_wireguard", "with_utls", "with_naive_outbound", "with_clash_api", "badlinkname", "tfogo_checklinkname0")
+	sharedTags = append(sharedTags, "with_gvisor", "with_quic", "with_utls", "with_clash_api", "badlinkname", "tfogo_checklinkname0")
 	darwinTags = append(darwinTags, "with_dhcp", "grpcnotrace")
-	// memcTags = append(memcTags, "with_tailscale")
-	sharedTags = append(sharedTags, "with_tailscale", "ts_omit_logtail", "ts_omit_ssh", "ts_omit_drive", "ts_omit_taildrop", "ts_omit_webclient", "ts_omit_doctor", "ts_omit_capture", "ts_omit_kube", "ts_omit_aws", "ts_omit_synology", "ts_omit_bird")
 	notMemcTags = append(notMemcTags, "with_low_memory")
 	debugTags = append(debugTags, "debug")
 }
@@ -75,20 +73,6 @@ type AndroidBuildConfig struct {
 	AndroidAPI int
 	OutputName string
 	Tags       []string
-}
-
-func filterTags(tags []string, exclude ...string) []string {
-	excludeMap := make(map[string]bool)
-	for _, tag := range exclude {
-		excludeMap[tag] = true
-	}
-	var result []string
-	for _, tag := range tags {
-		if !excludeMap[tag] {
-			result = append(result, tag)
-		}
-	}
-	return result
 }
 
 func checkJavaVersion() {
@@ -175,8 +159,8 @@ func buildAndroid() {
 		Tags:       mainTags,
 	}, bindTarget)
 
-	// Build legacy variant (SDK 21, no naive outbound)
-	legacyTags := filterTags(sharedTags, "with_naive_outbound")
+	// Build legacy variant (SDK 21)
+	legacyTags := append([]string{}, sharedTags...)
 	// legacyTags = append(legacyTags, memcTags...)
 	if debugEnabled {
 		legacyTags = append(legacyTags, debugTags...)

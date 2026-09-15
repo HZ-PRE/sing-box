@@ -20,29 +20,17 @@
   "builds": [
     {
       "id": "android-main",
-      "packages": ["libbox"],
+      "packages": [
+        "libbox"
+      ],
       "default": {
         "tags": [
           "with_gvisor",
           "with_quic",
-          "with_wireguard",
           "with_utls",
-          "with_naive_outbound",
           "with_clash_api",
           "badlinkname",
-          "tfogo_checklinkname0",
-          "with_tailscale",
-          "ts_omit_logtail",
-          "ts_omit_ssh",
-          "ts_omit_drive",
-          "ts_omit_taildrop",
-          "ts_omit_webclient",
-          "ts_omit_doctor",
-          "ts_omit_capture",
-          "ts_omit_kube",
-          "ts_omit_aws",
-          "ts_omit_synology",
-          "ts_omit_bird"
+          "tfogo_checklinkname0"
         ],
         "ldflags": "-X github.com/sagernet/sing-box/constant.Version=${VERSION} -X internal/godebug.defaultGODEBUG=multipathtcp=0 -s -w -buildid= -checklinkname=0",
         "trimpath": true
@@ -50,28 +38,17 @@
     },
     {
       "id": "android-legacy",
-      "packages": ["libbox"],
+      "packages": [
+        "libbox"
+      ],
       "default": {
         "tags": [
           "with_gvisor",
           "with_quic",
-          "with_wireguard",
           "with_utls",
           "with_clash_api",
           "badlinkname",
-          "tfogo_checklinkname0",
-          "with_tailscale",
-          "ts_omit_logtail",
-          "ts_omit_ssh",
-          "ts_omit_drive",
-          "ts_omit_taildrop",
-          "ts_omit_webclient",
-          "ts_omit_doctor",
-          "ts_omit_capture",
-          "ts_omit_kube",
-          "ts_omit_aws",
-          "ts_omit_synology",
-          "ts_omit_bird"
+          "tfogo_checklinkname0"
         ],
         "ldflags": "-X github.com/sagernet/sing-box/constant.Version=${VERSION} -X internal/godebug.defaultGODEBUG=multipathtcp=0 -s -w -buildid= -checklinkname=0",
         "trimpath": true
@@ -79,72 +56,56 @@
     },
     {
       "id": "apple",
-      "packages": ["libbox"],
+      "packages": [
+        "libbox"
+      ],
       "default": {
         "tags": [
           "with_gvisor",
           "with_quic",
-          "with_wireguard",
           "with_utls",
-          "with_naive_outbound",
           "with_clash_api",
           "badlinkname",
           "tfogo_checklinkname0",
           "with_dhcp",
-          "grpcnotrace",
-          "with_tailscale",
-          "ts_omit_logtail",
-          "ts_omit_ssh",
-          "ts_omit_drive",
-          "ts_omit_taildrop",
-          "ts_omit_webclient",
-          "ts_omit_doctor",
-          "ts_omit_capture",
-          "ts_omit_kube",
-          "ts_omit_aws",
-          "ts_omit_synology",
-          "ts_omit_bird"
+          "grpcnotrace"
         ],
         "ldflags": "-X github.com/sagernet/sing-box/constant.Version=${VERSION} -X internal/godebug.defaultGODEBUG=multipathtcp=0 -s -w -buildid= -checklinkname=0",
         "trimpath": true
       },
       "overrides": [
         {
-          "match": { "os": "ios" },
-          "tags_append": ["with_low_memory"]
+          "match": {
+            "os": "ios"
+          },
+          "tags_append": [
+            "with_low_memory"
+          ]
         },
         {
-          "match": { "os": "tvos" },
-          "tags_append": ["with_low_memory"]
+          "match": {
+            "os": "tvos"
+          },
+          "tags_append": [
+            "with_low_memory"
+          ]
         }
       ]
     },
     {
       "id": "windows",
-      "packages": ["libbox"],
+      "packages": [
+        "libbox"
+      ],
       "default": {
         "tags": [
           "with_gvisor",
           "with_quic",
-          "with_wireguard",
           "with_utls",
-          "with_naive_outbound",
           "with_purego",
           "with_clash_api",
           "badlinkname",
-          "tfogo_checklinkname0",
-          "with_tailscale",
-          "ts_omit_logtail",
-          "ts_omit_ssh",
-          "ts_omit_drive",
-          "ts_omit_taildrop",
-          "ts_omit_webclient",
-          "ts_omit_doctor",
-          "ts_omit_capture",
-          "ts_omit_kube",
-          "ts_omit_aws",
-          "ts_omit_synology",
-          "ts_omit_bird"
+          "tfogo_checklinkname0"
         ],
         "ldflags": "-X github.com/sagernet/sing-box/constant.Version=${VERSION} -X internal/godebug.defaultGODEBUG=multipathtcp=0 -s -w -buildid= -checklinkname=0",
         "trimpath": true
@@ -158,7 +119,11 @@
       "min_sdk": 23,
       "ndk_version": "28.0.13004108",
       "lib_name": "box",
-      "languages": [{ "type": "java" }],
+      "languages": [
+        {
+          "type": "java"
+        }
+      ],
       "artifacts": [
         {
           "type": "aar",
@@ -178,7 +143,11 @@
       "min_sdk": 21,
       "ndk_version": "28.0.13004108",
       "lib_name": "box",
-      "languages": [{ "type": "java" }],
+      "languages": [
+        {
+          "type": "java"
+        }
+      ],
       "artifacts": [
         {
           "type": "aar",
@@ -205,7 +174,11 @@
         "macos/arm64",
         "macos/amd64"
       ],
-      "languages": [{ "type": "objc" }],
+      "languages": [
+        {
+          "type": "objc"
+        }
+      ],
       "artifacts": [
         {
           "type": "xcframework",
@@ -225,7 +198,11 @@
       "targets": [
         "windows/amd64"
       ],
-      "languages": [{ "type": "csharp" }],
+      "languages": [
+        {
+          "type": "csharp"
+        }
+      ],
       "artifacts": [
         {
           "type": "nuget",
