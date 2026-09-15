@@ -43,7 +43,6 @@ type Manager struct {
 	connections             compatible.Map[uuid.UUID, Tracker]
 	closedConnectionsAccess sync.Mutex
 	closedConnections       list.List[TrackerMetadata]
-	memory                  uint64
 
 	eventSubscriber *observable.Subscriber[ConnectionEvent]
 }
@@ -101,12 +100,21 @@ func (m *Manager) PushDownloaded(size int64) {
 }
 
 func (m *Manager) PushOutboundUploaded(outbound string, size int64) {
-	v, _ := m.outboundUploadTotal.LoadOrStore(outbound, &atomic.Int64{})
-	v.(*atomic.Int64).Add(size)
+	addOutboundTraffic(&m.outboundUploadTotal, outbound, size)
 }
 
 func (m *Manager) PushOutboundDownloaded(outbound string, size int64) {
-	v, _ := m.outboundDownloadTotal.LoadOrStore(outbound, &atomic.Int64{})
+	addOutboundTraffic(&m.outboundDownloadTotal, outbound, size)
+}
+
+// Allocate only on first use, rather than for every forwarded packet/chunk.
+// LoadOrStore still handles concurrent first use without losing increments.
+func addOutboundTraffic(counters *sync.Map, outbound string, size int64) {
+	if v, ok := counters.Load(outbound); ok {
+		v.(*atomic.Int64).Add(size)
+		return
+	}
+	v, _ := counters.LoadOrStore(outbound, &atomic.Int64{})
 	v.(*atomic.Int64).Add(size)
 }
 
@@ -170,13 +178,13 @@ func (m *Manager) Snapshot() *Snapshot {
 
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
-	m.memory = memStats.StackInuse + memStats.HeapInuse + memStats.HeapIdle - memStats.HeapReleased
+	memory := memStats.StackInuse + memStats.HeapInuse + memStats.HeapIdle - memStats.HeapReleased
 
 	return &Snapshot{
 		Upload:      m.uploadTotal.Load(),
 		Download:    m.downloadTotal.Load(),
 		Connections: connections,
-		Memory:      m.memory,
+		Memory:      memory,
 	}
 }
 
