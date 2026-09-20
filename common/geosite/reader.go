@@ -9,7 +9,6 @@ import (
 	"sync/atomic"
 
 	E "github.com/sagernet/sing/common/exceptions"
-	"github.com/sagernet/sing/common/varbin"
 )
 
 type Reader struct {
@@ -63,20 +62,18 @@ func (r *Reader) readMetadata() error {
 	if err != nil {
 		return err
 	}
-	keys := make([]string, entryLength)
 	domainIndex := make(map[string]int)
 	domainLength := make(map[string]int)
-	for i := 0; i < int(entryLength); i++ {
+	for i := uint64(0); i < entryLength; i++ {
 		var (
 			code       string
 			codeIndex  uint64
 			codeLength uint64
 		)
-		code, err = varbin.ReadValue[string](reader, binary.BigEndian)
+		code, err = readString(reader)
 		if err != nil {
 			return err
 		}
-		keys[i] = code
 		codeIndex, err = binary.ReadUvarint(reader)
 		if err != nil {
 			return err
@@ -84,6 +81,9 @@ func (r *Reader) readMetadata() error {
 		codeLength, err = binary.ReadUvarint(reader)
 		if err != nil {
 			return err
+		}
+		if codeIndex > uint64(^uint(0)>>1) || codeLength > uint64(^uint(0)>>1) {
+			return E.New("geosite index overflow")
 		}
 		domainIndex[code] = int(codeIndex)
 		domainLength[code] = int(codeLength)
@@ -108,12 +108,33 @@ func (r *Reader) Read(code string) ([]Item, error) {
 		return nil, err
 	}
 	r.bufferedReader.Reset(r.reader)
-	itemList := make([]Item, r.domainLength[code])
-	err = varbin.Read(r.bufferedReader, binary.BigEndian, &itemList)
-	if err != nil {
-		return nil, err
+	itemList := make([]Item, 0)
+	for i := 0; i < r.domainLength[code]; i++ {
+		itemType, err := r.bufferedReader.ReadByte()
+		if err != nil {
+			return nil, err
+		}
+		value, err := readString(r.bufferedReader)
+		if err != nil {
+			return nil, err
+		}
+		itemList = append(itemList, Item{Type: itemType, Value: value})
 	}
 	return itemList, nil
+}
+
+func readString(reader *bufio.Reader) (string, error) {
+	length, err := binary.ReadUvarint(reader)
+	if err != nil {
+		return "", err
+	}
+	// Domain names and regex rules are small. Bound untrusted lengths before allocation.
+	if length > 1<<20 {
+		return "", E.New("geosite string exceeds 1 MiB")
+	}
+	value := make([]byte, int(length))
+	_, err = io.ReadFull(reader, value)
+	return string(value), err
 }
 
 func (r *Reader) Upstream() any {

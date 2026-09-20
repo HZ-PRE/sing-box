@@ -177,6 +177,7 @@ var (
 // into LocalBackend to advance the state machine, and advancing the
 // state machine generates events back out to zero or more components.
 type LocalBackend struct {
+	peerDNSQueryHandler PeerDNSQueryHandler // guarded by mu
 	// Elements that are thread-safe or constant after construction.
 	ctx         context.Context         // canceled by [LocalBackend.Shutdown]
 	ctxCancel   context.CancelCauseFunc // cancels ctx
@@ -5267,7 +5268,9 @@ func (b *LocalBackend) initPeerAPIListenerLocked() {
 	ps := &peerAPIServer{
 		b: b,
 	}
-	if dm, ok := b.sys.DNSManager.GetOK(); ok {
+	if b.peerDNSQueryHandler != nil {
+		ps.resolver = b.peerDNSQueryHandler
+	} else if dm, ok := b.sys.DNSManager.GetOK(); ok {
 		ps.resolver = dm.Resolver()
 	}
 	b.peerAPIServer = ps

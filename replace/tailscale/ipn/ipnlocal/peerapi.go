@@ -43,14 +43,22 @@ import (
 
 var initListenConfig func(*net.ListenConfig, netip.Addr, *netmon.State, string) error
 
-// peerDNSQueryHandler is implemented by tsdns.Resolver.
-type peerDNSQueryHandler interface {
+// PeerDNSQueryHandler is implemented by tsdns.Resolver and embedded DNS routers.
+type PeerDNSQueryHandler interface {
 	HandlePeerDNSQuery(context.Context, []byte, netip.AddrPort, func(name string) bool) (res []byte, err error)
 }
 
 type peerAPIServer struct {
 	b        *LocalBackend
-	resolver peerDNSQueryHandler
+	resolver PeerDNSQueryHandler
+}
+
+// SetPeerDNSQueryHandler configures the resolver for new peer API listeners.
+// Call before starting the backend, as existing listeners retain their resolver.
+func (b *LocalBackend) SetPeerDNSQueryHandler(handler PeerDNSQueryHandler) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.peerDNSQueryHandler = handler
 }
 
 func (s *peerAPIServer) listen(ip netip.Addr, ifState *netmon.State) (ln net.Listener, err error) {

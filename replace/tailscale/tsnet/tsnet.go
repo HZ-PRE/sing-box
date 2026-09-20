@@ -31,8 +31,8 @@ import (
 	"github.com/sagernet/tailscale/control/controlclient"
 	"github.com/sagernet/tailscale/envknob"
 	_ "github.com/sagernet/tailscale/feature/c2n"
-	_ "github.com/sagernet/tailscale/feature/condregister/osrouter"
 	_ "github.com/sagernet/tailscale/feature/condregister/oauthkey"
+	_ "github.com/sagernet/tailscale/feature/condregister/osrouter"
 	_ "github.com/sagernet/tailscale/feature/condregister/portmapper"
 	_ "github.com/sagernet/tailscale/feature/condregister/useproxy"
 	"github.com/sagernet/tailscale/health"
@@ -146,6 +146,8 @@ type Server struct {
 	HTTPClient *http.Client
 	TunDevice  wgTun.Device
 	Router     router.Router
+	// PeerDNSQueryHandler overrides exit-node DNS forwarding when set before Start.
+	PeerDNSQueryHandler ipnlocal.PeerDNSQueryHandler
 
 	getCertForTesting func(*tls.ClientHelloInfo) (*tls.Certificate, error)
 
@@ -693,6 +695,7 @@ func (s *Server) start() (reterr error) {
 	lb.SetTCPHandlerForFunnelFlow(s.getTCPHandlerForFunnelFlow)
 	lb.SetVarRoot(s.rootPath)
 	lb.SetHTTPTestClient(s.HTTPClient)
+	lb.SetPeerDNSQueryHandler(s.PeerDNSQueryHandler)
 	s.logf("tsnet starting with hostname %q, varRoot %q", s.hostname, s.rootPath)
 	s.lb = lb
 	if err := ns.Start(lb); err != nil {
