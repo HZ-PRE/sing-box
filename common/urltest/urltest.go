@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sagernet/sing-box/adapter"
@@ -33,6 +34,8 @@ func NewHistoryStorage() *HistoryStorage {
 }
 
 func (s *HistoryStorage) SetHook(hook *observable.Subscriber[struct{}]) {
+	s.access.Lock()
+	defer s.access.Unlock()
 	s.updateHook = hook
 }
 
@@ -42,7 +45,19 @@ func (s *HistoryStorage) LoadURLTestHistory(tag string) *adapter.URLTestHistory 
 	}
 	s.access.RLock()
 	defer s.access.RUnlock()
-	return s.delayHistory[tag]
+	return cloneHistory(s.delayHistory[tag])
+}
+
+func cloneHistory(history *adapter.URLTestHistory) *adapter.URLTestHistory {
+	if history == nil {
+		return nil
+	}
+	copy := *history
+	if history.IpInfo != nil {
+		ip := *history.IpInfo
+		copy.IpInfo = &ip
+	}
+	return &copy
 }
 
 func (s *HistoryStorage) DeleteURLTestHistory(tag string) {
@@ -58,16 +73,12 @@ func (s *HistoryStorage) DeleteURLTestHistory(tag string) {
 
 func (s *HistoryStorage) StoreURLTestHistory(tag string, history *adapter.URLTestHistory) *adapter.URLTestHistory {
 	s.access.Lock()
-	if old, ok := s.delayHistory[tag]; ok && history != nil {
-		old.Delay = history.Delay
-		old.Time = history.Time
-		if history.IpInfo != nil {
-			old.IpInfo = history.IpInfo
-		}
-	} else {
-		s.delayHistory[tag] = history
+	next := cloneHistory(history)
+	if old := s.delayHistory[tag]; old != nil && next != nil && next.IpInfo == nil {
+		next.IpInfo = cloneHistory(old).IpInfo
 	}
-	history = s.delayHistory[tag]
+	s.delayHistory[tag] = next
+	history = cloneHistory(next)
 	s.access.Unlock()
 	s.notifyUpdated()
 	return history
@@ -75,17 +86,22 @@ func (s *HistoryStorage) StoreURLTestHistory(tag string, history *adapter.URLTes
 
 func (s *HistoryStorage) AddOnlyIpToHistory(tag string, history *adapter.URLTestHistory) {
 	s.access.Lock()
-	if old, ok := s.delayHistory[tag]; ok && history != nil {
-		old.IpInfo = history.IpInfo
+	next := cloneHistory(history)
+	if old := s.delayHistory[tag]; old != nil && next != nil {
+		updated := cloneHistory(old)
+		updated.IpInfo = next.IpInfo
+		s.delayHistory[tag] = updated
 	} else {
-		s.delayHistory[tag] = history
+		s.delayHistory[tag] = next
 	}
 	s.access.Unlock()
 	s.notifyUpdated()
 }
 
 func (s *HistoryStorage) notifyUpdated() {
+	s.access.RLock()
 	updateHook := s.updateHook
+	s.access.RUnlock()
 	if updateHook != nil {
 		updateHook.Emit(struct{}{})
 	}
@@ -111,6 +127,9 @@ func URLTest(ctx context.Context, link string, detour N.Dialer) (t uint16, err e
 		return
 	}
 	hostname := linkURL.Hostname()
+	if hostname == "" || (linkURL.Scheme != "http" && linkURL.Scheme != "https") {
+		return 0, fmt.Errorf("urltest requires an HTTP(S) URL with a host")
+	}
 	port := linkURL.Port()
 	if port == "" {
 		switch linkURL.Scheme {
@@ -130,19 +149,25 @@ func URLTest(ctx context.Context, link string, detour N.Dialer) (t uint16, err e
 	if N.NeedHandshakeForWrite(instance) {
 		start = time.Now()
 	}
-	req, err := http.NewRequest(http.MethodHead, link, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, link, nil)
 	if err != nil {
 		return
 	}
 	select {
 	case <-ctx.Done():
-		return
+		return 0, ctx.Err()
 	default:
 	}
+	var connectionUsed atomic.Bool
 	client := http.Client{
 		Transport: &http.Transport{
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-				return instance, nil
+				if connectionUsed.CompareAndSwap(false, true) {
+					return instance, nil
+				}
+				// A server may close keep-alive after the first HEAD. Redial through
+				// the same proxy instead of handing http.Transport a closed socket.
+				return detour.DialContext(ctx, network, M.ParseSocksaddr(addr))
 			},
 			TLSClientConfig: &tls.Config{
 				Time:    ntp.TimeFuncFromContext(ctx),
@@ -157,7 +182,7 @@ func URLTest(ctx context.Context, link string, detour N.Dialer) (t uint16, err e
 	defer client.CloseIdleConnections()
 	select {
 	case <-ctx.Done():
-		return
+		return 0, ctx.Err()
 	default:
 	}
 	resp, err := client.Do(req.WithContext(ctx))
@@ -166,12 +191,12 @@ func URLTest(ctx context.Context, link string, detour N.Dialer) (t uint16, err e
 	}
 	resp.Body.Close()
 
-	t = uint16(time.Since(start) / time.Millisecond)
+	t = delayMilliseconds(time.Since(start))
 
 	if IsUnifiedDelayFromContext(ctx) {
 		select {
 		case <-ctx.Done():
-			return
+			return 0, ctx.Err()
 		default:
 		}
 		second := time.Now()
@@ -180,7 +205,12 @@ func URLTest(ctx context.Context, link string, detour N.Dialer) (t uint16, err e
 			return
 		}
 		resp.Body.Close()
-		t = uint16(time.Since(second) / time.Millisecond) //to avid timeout in the second call
+		t = delayMilliseconds(time.Since(second))
 	}
 	return
+}
+
+func delayMilliseconds(elapsed time.Duration) uint16 {
+	// 0 means untested and 65535 means timeout throughout the node UI.
+	return uint16(max(1, min(elapsed.Milliseconds(), 65534)))
 }
