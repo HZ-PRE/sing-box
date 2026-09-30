@@ -113,7 +113,7 @@ func NewNetworkManager(ctx context.Context, logger logger.ContextLogger, options
 			if err != nil {
 				return nil, E.Cause(err, "create network monitor")
 			}
-			nm.networkMonitor = networkMonitor
+			nm.networkMonitor = serializeNetworkMonitor(networkMonitor)
 			interfaceMonitor, err := tun.NewDefaultInterfaceMonitor(nm.networkMonitor, logger, tun.DefaultInterfaceMonitorOptions{
 				InterfaceFinder:       nm.interfaceFinder,
 				OverrideAndroidVPN:    options.OverrideAndroidVPN,

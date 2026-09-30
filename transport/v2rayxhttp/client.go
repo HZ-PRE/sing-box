@@ -9,8 +9,6 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/sagernet/quic-go"
@@ -37,6 +35,8 @@ import (
 
 type Client struct {
 	ctx             context.Context
+	cancel          context.CancelFunc
+	managers        []*XmuxManager
 	options         *option.V2RayXHTTPOptions
 	baseRequestURL  url.URL
 	baseRequestURL2 url.URL
@@ -53,6 +53,13 @@ func NewClient(ctx context.Context, dialer N.Dialer, serverAddr M.Socksaddr, opt
 	if err != nil {
 		return nil, err
 	}
+	ctx, cancel := context.WithCancel(ctx)
+	success := false
+	defer func() {
+		if !success {
+			cancel()
+		}
+	}()
 	var xmuxOptions option.V2RayXHTTPXmuxOptions
 	if options.Xmux != nil {
 		xmuxOptions = *options.Xmux
@@ -60,8 +67,12 @@ func NewClient(ctx context.Context, dialer N.Dialer, serverAddr M.Socksaddr, opt
 	xmuxManager := NewXmuxManager(xmuxOptions, func() XmuxConn {
 		return createHTTPClient(dest, dialer, &options.V2RayXHTTPBaseOptions, tlsConfig)
 	})
+	managers := []*XmuxManager{xmuxManager}
 	getHTTPClient := func() (DialerClient, *XmuxClient) {
 		xmuxClient := xmuxManager.GetXmuxClient(ctx)
+		if xmuxClient == nil {
+			return nil, nil
+		}
 		return xmuxClient.XmuxConn.(DialerClient), xmuxClient
 	}
 	baseRequestURL2 := baseRequestURL
@@ -95,12 +106,19 @@ func NewClient(ctx context.Context, dialer N.Dialer, serverAddr M.Socksaddr, opt
 		xmuxManager2 := NewXmuxManager(xmuxOptions2, func() XmuxConn {
 			return createHTTPClient(dest2, dialer2, &options2.V2RayXHTTPBaseOptions, tlsConfig2)
 		})
+		managers = append(managers, xmuxManager2)
 		getHTTPClient2 = func() (DialerClient, *XmuxClient) {
 			xmuxClient2 := xmuxManager2.GetXmuxClient(ctx)
+			if xmuxClient2 == nil {
+				return nil, nil
+			}
 			return xmuxClient2.XmuxConn.(DialerClient), xmuxClient2
 		}
 	}
+	success = true
 	return &Client{
+		cancel:          cancel,
+		managers:        managers,
 		ctx:             ctx,
 		options:         &options,
 		getHTTPClient:   getHTTPClient,
@@ -110,7 +128,18 @@ func NewClient(ctx context.Context, dialer N.Dialer, serverAddr M.Socksaddr, opt
 	}, nil
 }
 
-func (c *Client) DialContext(ctx context.Context) (net.Conn, error) {
+func (c *Client) DialContext(ctx context.Context) (_ net.Conn, retErr error) {
+	if c.ctx.Err() != nil {
+		return nil, io.ErrClosedPipe
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	stopCoreCancel := context.AfterFunc(c.ctx, cancel)
+	defer func() {
+		if retErr != nil {
+			stopCoreCancel()
+			cancel()
+		}
+	}()
 	options := c.options
 	mode := c.options.Mode
 	sessionId := ""
@@ -121,29 +150,40 @@ func (c *Client) DialContext(ctx context.Context) (net.Conn, error) {
 	requestURL := c.baseRequestURL
 	requestURL2 := c.baseRequestURL2
 	httpClient, xmuxClient := c.getHTTPClient()
-	httpClient2, xmuxClient2 := c.getHTTPClient2()
-	if xmuxClient != nil {
-		xmuxClient.OpenUsage.Add(1)
+	httpClient2, xmuxClient2 := httpClient, xmuxClient
+	if options.Download != nil && mode != "stream-one" {
+		httpClient2, xmuxClient2 = c.getHTTPClient2()
 	}
-	if xmuxClient2 != nil && xmuxClient2 != xmuxClient {
-		xmuxClient2.OpenUsage.Add(1)
+	if xmuxClient == nil || xmuxClient2 == nil {
+		if xmuxClient != nil {
+			xmuxClient.Release()
+		}
+		if xmuxClient2 != nil && xmuxClient2 != xmuxClient {
+			xmuxClient2.Release()
+		}
+		return nil, io.ErrClosedPipe
 	}
-	var closed atomic.Int32
 	reader, writer := io.Pipe()
 	conn := splitConn{
 		writer: writer,
 		onClose: func() {
-			if closed.Add(1) > 1 {
-				return
-			}
-			if xmuxClient != nil {
-				xmuxClient.OpenUsage.Add(-1)
-			}
-			if xmuxClient2 != nil && xmuxClient2 != xmuxClient {
-				xmuxClient2.OpenUsage.Add(-1)
+			stopCoreCancel()
+			cancel()
+			xmuxClient.Release()
+			if xmuxClient2 != xmuxClient {
+				xmuxClient2.Release()
 			}
 		},
 	}
+	defer func() {
+		if retErr != nil {
+			reader.Close()
+			conn.Close()
+		}
+	}()
+	// Install the close callback only after both ends of the split connection
+	// are initialized; cancellation may otherwise race with setup.
+	watchConnection := func() { context.AfterFunc(ctx, func() { conn.Close() }) }
 	var err error
 	if mode == "stream-one" {
 		requestURL.Path = options.GetNormalizedPath()
@@ -154,6 +194,7 @@ func (c *Client) DialContext(ctx context.Context) (net.Conn, error) {
 		if err != nil { // browser dialer only
 			return nil, err
 		}
+		watchConnection()
 		return &conn, nil
 	} else { // stream-down
 		if xmuxClient2 != nil {
@@ -172,6 +213,7 @@ func (c *Client) DialContext(ctx context.Context) (net.Conn, error) {
 		if err != nil { // browser dialer only
 			return nil, err
 		}
+		watchConnection()
 		return &conn, nil
 	}
 	scMaxEachPostBytes := options.GetNormalizedScMaxEachPostBytes()
@@ -183,13 +225,33 @@ func (c *Client) DialContext(ctx context.Context) (net.Conn, error) {
 	// WithSizeLimit(0) will still allow single bytes to pass, and a lot of
 	// code relies on this behavior. Subtract 1 so that together with
 	// uploadWriter wrapper, exact size limits can be enforced
-	// uploadPipeReader, uploadPipeWriter := pipe.New(pipe.WithSizeLimit(maxUploadSize - 1))
 	uploadPipeReader, uploadPipeWriter := pipe.New(pipe.WithSizeLimit(maxUploadSize - buf.Size))
+	reader.Close()
+	writer.Close()
 	conn.writer = uploadWriter{
 		uploadPipeWriter,
 		maxUploadSize,
 	}
+	xmuxClient.Retain()
+	watchConnection()
 	go func() {
+		uploadClient, uploadMux := httpClient, xmuxClient
+		uploadSessionLease := false
+		releaseUpload := func() {
+			if uploadMux == nil {
+				return
+			}
+			if uploadSessionLease {
+				uploadMux.Release()
+			} else {
+				uploadMux.ReleaseReference()
+			}
+		}
+		// Keep an independent lease while the upload loop is alive.
+		defer func() {
+			releaseUpload()
+			uploadPipeReader.Interrupt()
+		}()
 		var seq int64
 		var lastWrite time.Time
 		for {
@@ -205,7 +267,13 @@ func (c *Client) DialContext(ctx context.Context) (net.Conn, error) {
 			seqStr := strconv.FormatInt(seq, 10)
 			seq += 1
 			if scMinPostsIntervalMs.From > 0 {
-				time.Sleep(time.Duration(scMinPostsIntervalMs.Rand())*time.Millisecond - time.Since(lastWrite))
+				timer := time.NewTimer(time.Duration(scMinPostsIntervalMs.Rand())*time.Millisecond - time.Since(lastWrite))
+				select {
+				case <-timer.C:
+				case <-ctx.Done():
+					timer.Stop()
+					return
+				}
 			}
 			// by offloading the uploads into a buffered pipe, multiple conn.Write
 			// calls get automatically batched together into larger POST requests.
@@ -215,25 +283,28 @@ func (c *Client) DialContext(ctx context.Context) (net.Conn, error) {
 				break
 			}
 			lastWrite = time.Now()
-			if xmuxClient != nil && (xmuxClient.LeftRequests.Add(-1) <= 0 ||
-				(xmuxClient.UnreusableAt != time.Time{} && lastWrite.After(xmuxClient.UnreusableAt))) {
-				httpClient, xmuxClient = c.getHTTPClient()
+			if uploadMux.LeftRequests.Add(-1) < 0 ||
+				(!uploadMux.UnreusableAt.IsZero() && lastWrite.After(uploadMux.UnreusableAt)) {
+				releaseUpload()
+				uploadClient, uploadMux = c.getHTTPClient()
+				uploadSessionLease = true
+				if uploadMux == nil {
+					buf.ReleaseMulti(chunk)
+					return
+				}
+				uploadMux.LeftRequests.Add(-1)
 			}
-			go func() {
-				err := httpClient.PostPacket(
-					ctx,
-					url.String(),
-					sessionId,
-					seqStr,
-					&buf.MultiBufferContainer{MultiBuffer: chunk},
-					int64(chunk.Len()),
-				)
+			uploadMux.Retain()
+			go func(client DialerClient, lease *XmuxClient) {
+				defer lease.ReleaseReference()
+				err := client.PostPacket(ctx, url.String(), sessionId, seqStr,
+					&uploadBody{buffer: buf.MultiBufferContainer{MultiBuffer: chunk}}, int64(chunk.Len()))
 				wroteRequest.Close()
 				if err != nil {
-					uploadPipeReader.Interrupt()
+					cancel()
 				}
-			}()
-			if _, ok := httpClient.(*DefaultDialerClient); ok {
+			}(uploadClient, uploadMux)
+			if _, ok := uploadClient.(*DefaultDialerClient); ok {
 				select {
 				case <-ctx.Done():
 				case <-wroteRequest.Wait():
@@ -246,6 +317,10 @@ func (c *Client) DialContext(ctx context.Context) (net.Conn, error) {
 }
 
 func (c *Client) Close() error {
+	c.cancel()
+	for _, manager := range c.managers {
+		manager.Close()
+	}
 	return nil
 }
 
@@ -287,13 +362,22 @@ func getBaseRequestURL(options *option.V2RayXHTTPBaseOptions, dest M.Socksaddr, 
 
 func createHTTPClient(dest M.Socksaddr, dialer N.Dialer, options *option.V2RayXHTTPBaseOptions, tlsConfig tls.Config) DialerClient {
 	httpVersion := decideHTTPVersion(tlsConfig)
+	sockets := &clientSockets{}
 	dialContext := func(ctxInner context.Context) (net.Conn, error) {
 		conn, err := dialer.DialContext(ctxInner, "tcp", dest)
 		if err != nil {
 			return nil, err
 		}
+		conn, err = sockets.add(conn)
+		if err != nil {
+			return nil, err
+		}
 		if httpVersion != "3" && tlsConfig != nil {
-			return tls.ClientHandshake(ctxInner, conn, tlsConfig)
+			tlsConn, err := tls.ClientHandshake(ctxInner, conn, tlsConfig)
+			if err != nil {
+				conn.Close()
+			}
+			return tlsConn, err
 		}
 		return conn, nil
 	}
@@ -325,7 +409,15 @@ func createHTTPClient(dest M.Socksaddr, dialer N.Dialer, options *option.V2RayXH
 				if dErr != nil {
 					return nil, dErr
 				}
-				return qtls.DialEarly(ctx, bufio.NewUnbindPacketConn(udpConn), udpConn.RemoteAddr(), tlsConfig, cfg)
+				udpConn, dErr = sockets.add(udpConn)
+				if dErr != nil {
+					return nil, dErr
+				}
+				conn, err := qtls.DialEarly(ctx, bufio.NewUnbindPacketConn(udpConn), udpConn.RemoteAddr(), tlsConfig, cfg)
+				if err != nil {
+					udpConn.Close()
+				}
+				return conn, err
 			},
 		}
 	case "2":
@@ -357,12 +449,20 @@ func createHTTPClient(dest M.Socksaddr, dialer N.Dialer, options *option.V2RayXH
 	}
 	client := &DefaultDialerClient{
 		options: options,
+		sockets: sockets,
 		client: &http.Client{
 			Transport: transport,
 		},
-		httpVersion:    httpVersion,
-		uploadRawPool:  &sync.Pool{},
-		dialUploadConn: dialContext,
+	}
+	if h1, ok := transport.(*http.Transport); ok {
+		// Downloads use a dedicated streaming connection. Packet uploads use a
+		// bounded, drainable keep-alive pool which consumes every HTTP response.
+		upload := h1.Clone()
+		upload.DisableKeepAlives = false
+		upload.MaxIdleConns = 8
+		upload.MaxIdleConnsPerHost = 8
+		upload.MaxConnsPerHost = 8
+		client.uploadClient = &http.Client{Transport: upload}
 	}
 	return client
 }

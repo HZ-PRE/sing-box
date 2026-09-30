@@ -4,6 +4,7 @@ import (
 	common "github.com/sagernet/sing-box/common/xray"
 	"github.com/sagernet/sing-box/common/xray/buf"
 	"github.com/sagernet/sing-box/common/xray/pipe"
+	"sync"
 )
 
 // A wrapper around pipe that ensures the size limit is exactly honored.
@@ -19,12 +20,6 @@ type uploadWriter struct {
 }
 
 func (w uploadWriter) Write(b []byte) (int, error) {
-	/*
-		capacity := int(w.maxLen - w.Len())
-		if capacity > 0 && capacity < len(b) {
-			b = b[:capacity]
-		}
-	*/
 
 	buffer := buf.MultiBufferContainer{}
 	common.Must2(buffer.Write(b))
@@ -40,4 +35,22 @@ func (w uploadWriter) Write(b []byte) (int, error) {
 		writed += length
 	}
 	return writed, nil
+}
+
+// net/http may close a request body concurrently with a read on cancellation.
+// Serialize access to the pooled buffers so they are released exactly once.
+type uploadBody struct {
+	mu     sync.Mutex
+	buffer buf.MultiBufferContainer
+}
+
+func (b *uploadBody) Read(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buffer.Read(p)
+}
+func (b *uploadBody) Close() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buffer.Close()
 }

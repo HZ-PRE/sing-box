@@ -12,6 +12,7 @@ func TestRetainedVLESSTransportMatrix(t *testing.T) {
 		{"xhttp-auto", `{"type":"xhttp","mode":"auto","path":"/audit"}`},
 		{"xhttp-stream-up", `{"type":"xhttp","mode":"stream-up","path":"/audit"}`},
 		{"xhttp-stream-one", `{"type":"xhttp","mode":"stream-one","path":"/audit"}`},
+		{"xhttp-packet-rotation", `{"type":"xhttp","mode":"auto","path":"/audit","xmux":{"h_max_request_times":2}}`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var transport option.V2RayTransportOptions

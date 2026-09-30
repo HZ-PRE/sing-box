@@ -1,7 +1,6 @@
 package xhttp
 
 import (
-	"bufio"
 	"io"
 	"net"
 	"net/http"
@@ -21,6 +20,59 @@ type splitConn struct {
 	closeErr   error
 }
 
+// HTTP/2 CloseIdleConnections does not close active streams. Track the sockets
+// beneath TLS so transport shutdown also releases connections in that state.
+type clientSockets struct {
+	mu          sync.Mutex
+	closed      bool
+	connections map[*clientSocket]struct{}
+}
+
+type clientSocket struct {
+	net.Conn
+	owner *clientSockets
+	once  sync.Once
+	err   error
+}
+
+func (s *clientSockets) add(conn net.Conn) (net.Conn, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		conn.Close()
+		return nil, net.ErrClosed
+	}
+	if s.connections == nil {
+		s.connections = make(map[*clientSocket]struct{})
+	}
+	tracked := &clientSocket{Conn: conn, owner: s}
+	s.connections[tracked] = struct{}{}
+	return tracked, nil
+}
+
+func (c *clientSocket) Close() error {
+	c.once.Do(func() {
+		c.owner.mu.Lock()
+		delete(c.owner.connections, c)
+		c.owner.mu.Unlock()
+		c.err = c.Conn.Close()
+	})
+	return c.err
+}
+
+func (s *clientSockets) close() {
+	s.mu.Lock()
+	s.closed = true
+	connections := make([]*clientSocket, 0, len(s.connections))
+	for c := range s.connections {
+		connections = append(connections, c)
+	}
+	s.mu.Unlock()
+	for _, c := range connections {
+		c.Close()
+	}
+}
+
 func (c *splitConn) Write(b []byte) (int, error) {
 	return c.writer.Write(b)
 }
@@ -35,7 +87,10 @@ func (c *splitConn) Close() error {
 			c.onClose()
 		}
 		err := c.writer.Close()
-		err2 := c.reader.Close()
+		var err2 error
+		if c.reader != nil {
+			err2 = c.reader.Close()
+		}
 		if err != nil {
 			c.closeErr = err
 		} else {
@@ -66,19 +121,6 @@ func (c *splitConn) SetReadDeadline(t time.Time) error {
 func (c *splitConn) SetWriteDeadline(t time.Time) error {
 	// TODO cannot do anything useful
 	return nil
-}
-
-type H1Conn struct {
-	UnreadedResponsesCount int
-	RespBufReader          *bufio.Reader
-	net.Conn
-}
-
-func NewH1Conn(conn net.Conn) *H1Conn {
-	return &H1Conn{
-		RespBufReader: bufio.NewReader(conn),
-		Conn:          conn,
-	}
 }
 
 type httpServerConn struct {
