@@ -4,54 +4,32 @@ import (
 	"context"
 
 	box "github.com/sagernet/sing-box"
-	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/adapter/certificate"
 	"github.com/sagernet/sing-box/adapter/endpoint"
 	"github.com/sagernet/sing-box/adapter/inbound"
 	"github.com/sagernet/sing-box/adapter/outbound"
 	"github.com/sagernet/sing-box/adapter/service"
-	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing-box/dns"
 	"github.com/sagernet/sing-box/dns/transport"
 	"github.com/sagernet/sing-box/dns/transport/fakeip"
 	"github.com/sagernet/sing-box/dns/transport/hosts"
 	"github.com/sagernet/sing-box/dns/transport/local"
 	"github.com/sagernet/sing-box/dns/transport/multi"
-	"github.com/sagernet/sing-box/log"
-	"github.com/sagernet/sing-box/option"
-	"github.com/sagernet/sing-box/protocol/anytls"
 	"github.com/sagernet/sing-box/protocol/block"
 	"github.com/sagernet/sing-box/protocol/direct"
 	"github.com/sagernet/sing-box/protocol/group"
 	"github.com/sagernet/sing-box/protocol/group/balancer"
-	"github.com/sagernet/sing-box/protocol/sdm/dnstt"
-	"github.com/sagernet/sing-box/protocol/sdm/gooserelay"
-	"github.com/sagernet/sing-box/protocol/sdm/hinvalid"
 
 	"github.com/sagernet/sing-box/protocol/http"
-	"github.com/sagernet/sing-box/protocol/mieru"
 	"github.com/sagernet/sing-box/protocol/mixed"
-	"github.com/sagernet/sing-box/protocol/naive"
-	"github.com/sagernet/sing-box/protocol/psiphon"
 	"github.com/sagernet/sing-box/protocol/redirect"
-	"github.com/sagernet/sing-box/protocol/sdm/xray"
-	"github.com/sagernet/sing-box/protocol/shadowsocks"
-	"github.com/sagernet/sing-box/protocol/shadowtls"
-	snellprotocol "github.com/sagernet/sing-box/protocol/snell"
 	"github.com/sagernet/sing-box/protocol/socks"
-	"github.com/sagernet/sing-box/protocol/ssh"
 	"github.com/sagernet/sing-box/protocol/ssplus"
-	"github.com/sagernet/sing-box/protocol/tor"
-	"github.com/sagernet/sing-box/protocol/trojan"
 	"github.com/sagernet/sing-box/protocol/tun"
-	"github.com/sagernet/sing-box/protocol/tunnel"
 	"github.com/sagernet/sing-box/protocol/vless"
-	"github.com/sagernet/sing-box/protocol/vmess"
 	originca "github.com/sagernet/sing-box/service/origin_ca"
 	"github.com/sagernet/sing-box/service/resolved"
 	smartdnspool "github.com/sagernet/sing-box/service/smart_dns_pool"
-	"github.com/sagernet/sing-box/service/ssmapi"
-	E "github.com/sagernet/sing/common/exceptions"
 )
 
 func Context(ctx context.Context) context.Context {
@@ -70,21 +48,9 @@ func InboundRegistry() *inbound.Registry {
 	http.RegisterInbound(registry)
 	mixed.RegisterInbound(registry)
 
-	shadowsocks.RegisterInbound(registry)
 	ssplus.RegisterInbound(registry)
-	vmess.RegisterInbound(registry)
-	trojan.RegisterInbound(registry)
-	naive.RegisterInbound(registry)
-	shadowtls.RegisterInbound(registry)
-	vless.RegisterInbound(registry)
-	anytls.RegisterInbound(registry)
-	mieru.RegisterInbound(registry)
-	ssh.RegisterInbound(registry)
-	snellprotocol.RegisterInbound(registry)
 
-	registerQUICInbounds(registry)
-	registerCloudflaredInbound(registry)
-	registerStubForRemovedInbounds(registry)
+	vless.RegisterInbound(registry)
 
 	return registry
 }
@@ -93,50 +59,24 @@ func OutboundRegistry() *outbound.Registry {
 	registry := outbound.NewRegistry()
 
 	direct.RegisterOutbound(registry)
+	socks.RegisterLocalBridge(registry)
 
 	block.RegisterOutbound(registry)
 
 	group.RegisterSelector(registry)
 	group.RegisterURLTest(registry)
 
-	socks.RegisterOutbound(registry)
-	http.RegisterOutbound(registry)
-	shadowsocks.RegisterOutbound(registry)
 	ssplus.RegisterOutbound(registry)
-	vmess.RegisterOutbound(registry)
-	trojan.RegisterOutbound(registry)
-	registerNaiveOutbound(registry)
-	tor.RegisterOutbound(registry)
-	ssh.RegisterOutbound(registry)
-	shadowtls.RegisterOutbound(registry)
-	vless.RegisterOutbound(registry)
-	psiphon.RegisterOutbound(registry)
-	mieru.RegisterOutbound(registry)
-	anytls.RegisterOutbound(registry)
-	hinvalid.RegisterOutbound(registry)
-	xray.RegisterOutbound(registry)
-	dnstt.RegisterOutbound(registry)
-	gooserelay.RegisterOutbound(registry)
-	balancer.RegisterLoadBalance(registry)
-	snellprotocol.RegisterOutbound(registry)
 
-	registerMASQUEOutbound(registry)
-	registerQUICOutbounds(registry)
-	registerStubForRemovedOutbounds(registry)
+	vless.RegisterOutbound(registry)
+
+	balancer.RegisterLoadBalance(registry)
 
 	return registry
 }
 
 func EndpointRegistry() *endpoint.Registry {
 	registry := endpoint.NewRegistry()
-
-	tunnel.RegisterServerEndpoint(registry)
-	tunnel.RegisterClientEndpoint(registry)
-
-	registerWireGuardEndpoint(registry)
-	registerWarpEndpoint(registry)
-	registerTailscaleEndpoint(registry)
-	registerAwgEndpoint(registry)
 
 	return registry
 }
@@ -158,7 +98,6 @@ func DNSTransportRegistry() *dns.TransportRegistry {
 
 	registerQUICTransports(registry)
 	registerDHCPTransport(registry)
-	registerTailscaleTransport(registry)
 
 	return registry
 }
@@ -167,10 +106,9 @@ func ServiceRegistry() *service.Registry {
 	registry := service.NewRegistry()
 
 	resolved.RegisterService(registry)
-	ssmapi.RegisterService(registry)
+
 	smartdnspool.RegisterService(registry) //H
 
-	registerDERPService(registry)
 	registerCCMService(registry)
 	registerOCMService(registry)
 	registerOOMKillerService(registry)
@@ -182,23 +120,8 @@ func CertificateProviderRegistry() *certificate.Registry {
 	registry := certificate.NewRegistry()
 
 	registerACMECertificateProvider(registry)
-	registerTailscaleCertificateProvider(registry)
+
 	originca.RegisterCertificateProvider(registry)
 
 	return registry
-}
-
-func registerStubForRemovedInbounds(registry *inbound.Registry) {
-	inbound.Register[option.ShadowsocksInboundOptions](registry, C.TypeShadowsocksR, func(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options option.ShadowsocksInboundOptions) (adapter.Inbound, error) {
-		return nil, E.New("ShadowsocksR is deprecated and removed in sing-box 1.6.0")
-	})
-}
-
-func registerStubForRemovedOutbounds(registry *outbound.Registry) {
-	outbound.Register[option.ShadowsocksROutboundOptions](registry, C.TypeShadowsocksR, func(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options option.ShadowsocksROutboundOptions) (adapter.Outbound, error) {
-		return nil, E.New("ShadowsocksR is deprecated and removed in sing-box 1.6.0")
-	})
-	outbound.Register[option.StubOptions](registry, C.TypeWireGuard, func(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options option.StubOptions) (adapter.Outbound, error) {
-		return nil, E.New("WireGuard outbound is deprecated in sing-box 1.11.0 and removed in sing-box 1.13.0, use WireGuard endpoint instead")
-	})
 }

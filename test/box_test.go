@@ -2,20 +2,14 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
-	"io"
 	"net"
-	"net/http"
 	"testing"
 	"time"
 
-	"github.com/sagernet/quic-go"
-	"github.com/sagernet/quic-go/http3"
 	"github.com/sagernet/sing-box"
 	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing-box/include"
 	"github.com/sagernet/sing-box/option"
-	"github.com/sagernet/sing/common/bufio"
 	"github.com/sagernet/sing/common/debug"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
@@ -26,7 +20,9 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	goleak.VerifyTestMain(m)
+	// The process-wide default logger starts before TestMain. Still detect
+	// every additional goroutine leaked by a protocol lifecycle test.
+	goleak.VerifyTestMain(m, goleak.IgnoreCurrent())
 }
 
 var globalCtx context.Context
@@ -85,28 +81,6 @@ func testSuit(t *testing.T, clientPort uint16, testPort uint16) {
 	// require.NoError(t, testPacketConnTimeout(t, dialUDP))
 }
 
-func testQUIC(t *testing.T, clientPort uint16) {
-	dialer := socks.NewClient(N.SystemDialer, M.ParseSocksaddrHostPort("127.0.0.1", clientPort), socks.Version5, "", "")
-	client := &http.Client{
-		Transport: &http3.Transport{
-			Dial: func(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error) {
-				destination := M.ParseSocksaddr(addr)
-				udpConn, err := dialer.DialContext(ctx, N.NetworkUDP, destination)
-				if err != nil {
-					return nil, err
-				}
-				return quic.DialEarly(ctx, udpConn.(net.PacketConn), destination, tlsCfg, cfg)
-			},
-		},
-	}
-	response, err := client.Get("https://cloudflare.com/cdn-cgi/trace")
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, response.StatusCode)
-	content, err := io.ReadAll(response.Body)
-	require.NoError(t, err)
-	println(string(content))
-}
-
 func testSuitLargeUDP(t *testing.T, clientPort uint16, testPort uint16) {
 	dialer := socks.NewClient(N.SystemDialer, M.ParseSocksaddrHostPort("127.0.0.1", clientPort), socks.Version5, "", "")
 	dialTCP := func() (net.Conn, error) {
@@ -161,22 +135,4 @@ func testSuitSimple1(t *testing.T, clientPort uint16, testPort uint16) {
 	if !C.IsDarwin {
 		require.NoError(t, testLargeDataWithPacketConn(t, testPort, dialUDP))
 	}
-}
-
-func testSuitWg(t *testing.T, clientPort uint16, testPort uint16) {
-	dialer := socks.NewClient(N.SystemDialer, M.ParseSocksaddrHostPort("127.0.0.1", clientPort), socks.Version5, "", "")
-	dialTCP := func() (net.Conn, error) {
-		return dialer.DialContext(context.Background(), "tcp", M.ParseSocksaddrHostPort("10.0.0.1", testPort))
-	}
-	dialUDP := func() (net.PacketConn, error) {
-		conn, err := dialer.DialContext(context.Background(), "udp", M.ParseSocksaddrHostPort("10.0.0.1", testPort))
-		if err != nil {
-			return nil, err
-		}
-		return bufio.NewUnbindPacketConn(conn), nil
-	}
-	require.NoError(t, testPingPongWithConn(t, testPort, dialTCP))
-	require.NoError(t, testPingPongWithPacketConn(t, testPort, dialUDP))
-	require.NoError(t, testLargeDataWithConn(t, testPort, dialTCP))
-	require.NoError(t, testLargeDataWithPacketConn(t, testPort, dialUDP))
 }

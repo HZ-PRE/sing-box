@@ -2,7 +2,6 @@ package option
 
 import (
 	"github.com/sagernet/sing/common/auth"
-	"github.com/sagernet/sing/common/json/badoption"
 )
 
 type SocksInboundOptions struct {
@@ -19,7 +18,8 @@ type HTTPMixedInboundOptions struct {
 	InboundTLSOptionsContainer
 }
 
-type SOCKSOutboundOptions struct {
+// LocalSOCKSBridgeOptions is reserved for the privileged local TUN helper.
+type LocalSOCKSBridgeOptions struct {
 	DialerOptions
 	ServerOptions
 	Version    string             `json:"version,omitempty"`
@@ -27,14 +27,4 @@ type SOCKSOutboundOptions struct {
 	Password   string             `json:"password,omitempty"`
 	Network    NetworkList        `json:"network,omitempty"`
 	UDPOverTCP *UDPOverTCPOptions `json:"udp_over_tcp,omitempty"`
-}
-
-type HTTPOutboundOptions struct {
-	DialerOptions
-	ServerOptions
-	Username string `json:"username,omitempty"`
-	Password string `json:"password,omitempty"`
-	OutboundTLSOptionsContainer
-	Path    string               `json:"path,omitempty"`
-	Headers badoption.HTTPHeader `json:"headers,omitempty"`
 }

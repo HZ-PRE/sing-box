@@ -36,6 +36,7 @@ var _ adapter.V2RayServerTransport = (*Server)(nil)
 
 type Server struct {
 	ctx         context.Context
+	cancel      context.CancelFunc
 	logger      logger.ContextLogger
 	tlsConfig   tls.ServerConfig
 	quicConfig  *quic.Config
@@ -51,8 +52,10 @@ type Server struct {
 }
 
 func NewServer(ctx context.Context, logger logger.ContextLogger, options option.V2RayXHTTPOptions, tlsConfig tls.ServerConfig, handler adapter.V2RayServerTransportHandler) (*Server, error) {
+	ctx, cancel := context.WithCancel(ctx)
 	server := &Server{
 		ctx:       ctx,
+		cancel:    cancel,
 		logger:    logger,
 		tlsConfig: tlsConfig,
 		handler:   handler,
@@ -163,6 +166,10 @@ func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	var currentSession *httpSession
 	if sessionId != "" {
 		currentSession = s.upsertSession(sessionId)
+		if currentSession == nil {
+			writer.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
 	}
 	scMaxEachPostBytes := int(s.options.GetNormalizedScMaxEachPostBytes().To)
 	uplinkHTTPMethod := s.options.GetNormalizedUplinkHTTPMethod()
@@ -213,7 +220,13 @@ func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 							if err != nil {
 								break
 							}
-							time.Sleep(time.Duration(scStreamUpServerSecs.Rand()) * time.Second)
+							timer := time.NewTimer(time.Duration(scStreamUpServerSecs.Rand()) * time.Second)
+							select {
+							case <-timer.C:
+							case <-httpSC.Wait():
+								timer.Stop()
+								return
+							}
 						}
 					}()
 				}
@@ -338,6 +351,11 @@ func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		if sessionId != "" { // if not stream-one
 			conn.reader = currentSession.uploadQueue
 		}
+		// The protocol handler can synchronously read the upload queue. Cancel
+		// that read when the download request disappears, even before it returns.
+		stopClose := context.AfterFunc(request.Context(), func() { conn.Close() })
+		defer stopClose()
+		defer conn.Close()
 		s.handler.NewConnectionEx(request.Context(), &conn, sHttp.SourceAddress(request), M.Socksaddr{}, func(it error) {})
 		// "A ResponseWriter may not be used after [Handler.ServeHTTP] has returned."
 		select {
@@ -379,6 +397,14 @@ func (s *Server) ServePacket(listener net.PacketConn) error {
 }
 
 func (s *Server) Close() error {
+	s.cancel()
+	s.sessionMu.Lock()
+	s.sessions.Range(func(key, value any) bool {
+		value.(*httpSession).uploadQueue.Close()
+		s.sessions.Delete(key)
+		return true
+	})
+	s.sessionMu.Unlock()
 	if s.network() == N.NetworkTCP {
 		return common.Close(s.httpServer)
 	}
@@ -401,6 +427,9 @@ func (s *Server) upsertSession(sessionId string) *httpSession {
 	// slow path
 	s.sessionMu.Lock()
 	defer s.sessionMu.Unlock()
+	if s.ctx.Err() != nil {
+		return nil
+	}
 	currentSessionAny, ok = s.sessions.Load(sessionId)
 	if ok {
 		return currentSessionAny.(*httpSession)
@@ -410,18 +439,16 @@ func (s *Server) upsertSession(sessionId string) *httpSession {
 		isFullyConnected: done.New(),
 	}
 	s.sessions.Store(sessionId, session)
-	shouldReap := done.New()
 	go func() {
-		time.Sleep(30 * time.Second)
-		shouldReap.Close()
-	}()
-	go func() {
+		timer := time.NewTimer(30 * time.Second)
+		defer timer.Stop()
 		select {
-		case <-shouldReap.Wait():
+		case <-timer.C:
 			s.sessions.Delete(sessionId)
 			session.uploadQueue.Close()
 		case <-session.isFullyConnected.Wait():
 		case <-s.ctx.Done():
+			session.uploadQueue.Close()
 		}
 	}()
 	return session

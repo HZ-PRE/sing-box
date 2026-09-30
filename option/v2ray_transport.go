@@ -21,7 +21,6 @@ type _V2RayTransportOptions struct {
 	GRPCOptions        V2RayGRPCOptions        `json:"-"`
 	HTTPUpgradeOptions V2RayHTTPUpgradeOptions `json:"-"`
 	XHTTPOptions       V2RayXHTTPOptions       `json:"-"`
-	DNSTTOptions       DnsttOptions            `json:"-"`
 }
 
 type V2RayTransportOptions _V2RayTransportOptions
@@ -163,10 +162,23 @@ const (
 )
 
 func (c V2RayXHTTPOptions) MarshalJSON() ([]byte, error) {
+	// URI conversion constructs options directly. Serialize the same defaults
+	// used by the transport instead of an empty range rejected on reload.
+	c.XPaddingBytes = c.GetNormalizedXPaddingBytes()
+	if c.Download != nil {
+		download := *c.Download
+		download.XPaddingBytes = download.GetNormalizedXPaddingBytes()
+		c.Download = &download
+	}
 	return json.Marshal((*_V2RayXHTTPOptions)(&c))
 }
 
 func (c *V2RayXHTTPOptions) UnmarshalJSON(bytes []byte) error {
+	// Missing padding uses the transport default. An explicitly disabled
+	// range is still rejected below.
+	*c = V2RayXHTTPOptions{V2RayXHTTPBaseOptions: V2RayXHTTPBaseOptions{
+		XPaddingBytes: Xbadoption.Range{From: 100, To: 1000},
+	}}
 	err := json.Unmarshal(bytes, (*_V2RayXHTTPOptions)(c))
 	if err != nil {
 		return err
@@ -188,6 +200,18 @@ func (c *V2RayXHTTPOptions) UnmarshalJSON(bytes []byte) error {
 			return err
 		}
 	}
+	return nil
+}
+
+func (c *V2RayXHTTPDownloadOptions) UnmarshalJSON(content []byte) error {
+	type plain V2RayXHTTPDownloadOptions
+	options := plain{V2RayXHTTPBaseOptions: V2RayXHTTPBaseOptions{
+		XPaddingBytes: Xbadoption.Range{From: 100, To: 1000},
+	}}
+	if err := json.Unmarshal(content, &options); err != nil {
+		return err
+	}
+	*c = V2RayXHTTPDownloadOptions(options)
 	return nil
 }
 

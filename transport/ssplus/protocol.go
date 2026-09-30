@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sagernet/sing-shadowsocks/shadowaead"
+	shadowaead "github.com/sagernet/sing-box/transport/ssplus/internal/aead"
 	M "github.com/sagernet/sing/common/metadata"
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/hkdf"

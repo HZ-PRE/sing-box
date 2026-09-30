@@ -6,7 +6,6 @@ package xhttp
 import (
 	"container/heap"
 	"io"
-	"runtime"
 	"sync"
 
 	E "github.com/sagernet/sing/common/exceptions"
@@ -23,6 +22,9 @@ type uploadQueue struct {
 	nomore          bool
 	pushedPackets   chan Packet
 	writeCloseMutex sync.Mutex
+	stateMutex      sync.Mutex
+	done            chan struct{}
+	closeOnce       sync.Once
 	heap            uploadHeap
 	nextSeq         uint64
 	closed          bool
@@ -32,6 +34,7 @@ type uploadQueue struct {
 func NewUploadQueue(maxPackets int) *uploadQueue {
 	return &uploadQueue{
 		pushedPackets: make(chan Packet, maxPackets),
+		done:          make(chan struct{}),
 		heap:          uploadHeap{},
 		nextSeq:       0,
 		closed:        false,
@@ -42,8 +45,10 @@ func NewUploadQueue(maxPackets int) *uploadQueue {
 func (h *uploadQueue) Push(p Packet) error {
 	h.writeCloseMutex.Lock()
 	defer h.writeCloseMutex.Unlock()
-	if h.closed {
+	select {
+	case <-h.done:
 		return E.New("packet queue closed")
+	default:
 	}
 	if h.nomore {
 		return E.New("h.reader already exists")
@@ -51,50 +56,76 @@ func (h *uploadQueue) Push(p Packet) error {
 	if p.Reader != nil {
 		h.nomore = true
 	}
-	h.pushedPackets <- p
-	return nil
+	select {
+	case h.pushedPackets <- p:
+		return nil
+	case <-h.done:
+		return E.New("packet queue closed")
+	}
 }
 
 func (h *uploadQueue) Close() error {
-	h.writeCloseMutex.Lock()
-	defer h.writeCloseMutex.Unlock()
-	if !h.closed {
+	h.closeOnce.Do(func() {
+		close(h.done)
+		h.stateMutex.Lock()
 		h.closed = true
-		runtime.Gosched() // hope Read() gets the packet
-	f:
+		reader := h.reader
+		h.stateMutex.Unlock()
+		if reader != nil {
+			reader.Close()
+		}
+		// Wake blocked producers before taking their lock. The data channel
+		// stays open, so a concurrent sender can never panic during shutdown.
+		h.writeCloseMutex.Lock()
+		defer h.writeCloseMutex.Unlock()
 		for {
 			select {
 			case p := <-h.pushedPackets:
 				if p.Reader != nil {
-					h.reader = p.Reader
+					p.Reader.Close()
 				}
 			default:
-				break f
+				return
 			}
 		}
-		close(h.pushedPackets)
-	}
-	if h.reader != nil {
-		return h.reader.Close()
-	}
+	})
 	return nil
 }
 
-func (h *uploadQueue) Read(b []byte) (int, error) {
-	if h.reader != nil {
-		return h.reader.Read(b)
+func (h *uploadQueue) receive() (Packet, bool) {
+	select {
+	case <-h.done:
+		return Packet{}, false
+	case packet := <-h.pushedPackets:
+		return packet, true
 	}
-	if h.closed {
+}
+
+func (h *uploadQueue) Read(b []byte) (int, error) {
+	h.stateMutex.Lock()
+	reader, closed := h.reader, h.closed
+	h.stateMutex.Unlock()
+	if closed {
 		return 0, io.EOF
 	}
+	if reader != nil {
+		return reader.Read(b)
+	}
 	if len(h.heap) == 0 {
-		packet, more := <-h.pushedPackets
+		packet, more := h.receive()
 		if !more {
 			return 0, io.EOF
 		}
 		if packet.Reader != nil {
+			h.stateMutex.Lock()
+			if h.closed {
+				h.stateMutex.Unlock()
+				packet.Reader.Close()
+				return 0, io.EOF
+			}
 			h.reader = packet.Reader
-			return h.reader.Read(b)
+			h.stateMutex.Unlock()
+			return packet.Reader.Read(b)
 		}
 		heap.Push(&h.heap, packet)
 	}
@@ -125,7 +156,7 @@ func (h *uploadQueue) Read(b []byte) (int, error) {
 				return 0, E.New("packet queue is too large")
 			}
 			heap.Push(&h.heap, packet)
-			packet2, more := <-h.pushedPackets
+			packet2, more := h.receive()
 			if !more {
 				return 0, io.EOF
 			}
@@ -152,6 +183,7 @@ func (h *uploadHeap) Pop() any {
 	old := *h
 	n := len(old)
 	x := old[n-1]
+	old[n-1] = Packet{}
 	*h = old[0 : n-1]
 	return x
 }

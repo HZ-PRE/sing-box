@@ -11,6 +11,7 @@ import (
 	"net/http/httptrace"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	common "github.com/sagernet/sing-box/common/xray"
 	"github.com/sagernet/sing-box/common/xray/signal/done"
@@ -32,7 +33,7 @@ type DialerClient interface {
 type DefaultDialerClient struct {
 	options     *option.V2RayXHTTPBaseOptions
 	client      *http.Client
-	closed      bool
+	closed      atomic.Bool
 	httpVersion string
 	// pool of net.Conn, created using dialUploadConn
 	uploadRawPool  *sync.Pool
@@ -40,7 +41,7 @@ type DefaultDialerClient struct {
 }
 
 func (c *DefaultDialerClient) IsClosed() bool {
-	return c.closed
+	return c.closed.Load()
 }
 
 func (c *DefaultDialerClient) OpenStream(ctx context.Context, url string, sessionId string, body io.Reader, uploadOnly bool) (wrc io.ReadCloser, remoteAddr, localAddr net.Addr, err error) {
@@ -89,7 +90,7 @@ func (c *DefaultDialerClient) OpenStream(ctx context.Context, url string, sessio
 		resp, err := c.client.Do(req)
 		if err != nil {
 			if !uploadOnly { // stream-down is enough
-				c.closed = true
+				c.closed.Store(true)
 			}
 			gotConn.Close()
 			wrc.Close()
@@ -183,7 +184,7 @@ func (c *DefaultDialerClient) PostPacket(ctx context.Context, url string, sessio
 	if c.httpVersion != "1.1" {
 		resp, err := c.client.Do(req)
 		if err != nil {
-			c.closed = true
+			c.closed.Store(true)
 			return err
 		}
 		io.Copy(io.Discard, resp.Body)
@@ -215,7 +216,7 @@ func (c *DefaultDialerClient) PostPacket(ctx context.Context, url string, sessio
 				if h1UploadConn.UnreadedResponsesCount > 0 {
 					resp, err := http.ReadResponse(h1UploadConn.RespBufReader, req)
 					if err != nil {
-						c.closed = true
+						c.closed.Store(true)
 						return fmt.Errorf("error while reading response: %s", err.Error())
 					}
 					io.Copy(io.Discard, resp.Body)
@@ -242,51 +243,54 @@ func (c *DefaultDialerClient) PostPacket(ctx context.Context, url string, sessio
 }
 
 type WaitReadCloser struct {
-	ctx  context.Context
-	Wait chan struct{}
-	io.ReadCloser
+	ctx    context.Context
+	Wait   chan struct{}
+	mu     sync.Mutex
+	reader io.ReadCloser
+	closed bool
+	ready  sync.Once
 }
 
 func (w *WaitReadCloser) Set(rc io.ReadCloser) {
-	w.ReadCloser = rc
-	defer func() {
-		if recover() != nil {
-			rc.Close()
-		}
-	}()
-	close(w.Wait)
+	w.mu.Lock()
+	if w.closed || w.reader != nil {
+		w.mu.Unlock()
+		rc.Close()
+		return
+	}
+	w.reader = rc
+	w.ready.Do(func() { close(w.Wait) })
+	w.mu.Unlock()
 }
 
 func (w *WaitReadCloser) Read(b []byte) (int, error) {
 	select {
 	case <-w.ctx.Done():
 		return 0, w.ctx.Err()
-	default:
+	case <-w.Wait:
 	}
-
-	if w.ReadCloser == nil {
-		select {
-		case <-w.ctx.Done():
-			return 0, w.ctx.Err()
-		case <-w.Wait:
-		}
-		if w.ReadCloser == nil {
-			return 0, io.ErrClosedPipe
-		}
+	w.mu.Lock()
+	reader, closed := w.reader, w.closed
+	w.mu.Unlock()
+	if closed || reader == nil {
+		return 0, io.ErrClosedPipe
 	}
-	return w.ReadCloser.Read(b)
+	return reader.Read(b)
 }
 
 func (w *WaitReadCloser) Close() error {
-	if w.ReadCloser != nil {
-		return w.ReadCloser.Close()
+	w.mu.Lock()
+	if w.closed {
+		w.mu.Unlock()
+		return nil
 	}
-	defer func() {
-		if recover() != nil && w.ReadCloser != nil {
-			w.ReadCloser.Close()
-		}
-	}()
-	close(w.Wait)
+	w.closed = true
+	reader := w.reader
+	w.ready.Do(func() { close(w.Wait) })
+	w.mu.Unlock()
+	if reader != nil {
+		return reader.Close()
+	}
 	return nil
 }
 
