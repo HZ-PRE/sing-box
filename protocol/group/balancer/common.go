@@ -156,7 +156,7 @@ func getMinDelay(outbounds map[string][]adapter.Outbound, history map[string]*ad
 		for _, out := range outs {
 
 			d := getTagDelay(out.Tag(), history)
-			if d <= minDelay {
+			if minOut == nil || d < minDelay {
 				minDelay = d
 				minOut = out
 			}

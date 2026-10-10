@@ -3,6 +3,7 @@ package balancer
 import (
 	"context"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/sagernet/sing-box/adapter"
@@ -35,39 +36,34 @@ const (
 type Balancer struct {
 	outbound.Adapter
 	ctx                          context.Context
-	router                       adapter.Router
 	outbound                     adapter.OutboundManager
 	connection                   adapter.ConnectionManager
 	logger                       log.ContextLogger
 	tags                         []string
-	link                         string
-	interval                     time.Duration
-	tolerance                    uint16
-	idleTimeout                  time.Duration
 	strategyFn                   Strategy
 	options                      option.BalancerOutboundOptions
 	interruptExternalConnections bool
 
 	monitor *monitoring.OutboundMonitoring
 
-	availbleOutbounds []adapter.Outbound
-	close             chan struct{}
-	interruptGroup    *interrupt.Group
+	close          chan struct{}
+	closeOnce      sync.Once
+	workerWG       sync.WaitGroup
+	interruptGroup *interrupt.Group
 }
 
 func NewLoadBalance(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options option.BalancerOutboundOptions) (adapter.Outbound, error) {
 	outbound := &Balancer{
 		Adapter:                      outbound.NewAdapter(C.TypeBalancer, tag, []string{N.NetworkTCP, N.NetworkUDP}, options.Outbounds),
 		ctx:                          ctx,
-		router:                       router,
 		outbound:                     service.FromContext[adapter.OutboundManager](ctx),
 		connection:                   service.FromContext[adapter.ConnectionManager](ctx),
 		logger:                       logger,
 		tags:                         options.Outbounds,
-		tolerance:                    options.Tolerance,
 		interruptExternalConnections: options.InterruptExistConnections,
 		options:                      options,
 		interruptGroup:               interrupt.NewGroup(),
+		close:                        make(chan struct{}),
 	}
 	if len(outbound.tags) == 0 {
 		return nil, E.New("missing tags")
@@ -108,17 +104,32 @@ func (s *Balancer) Start() error {
 }
 
 func (s *Balancer) PostStart() error {
-	go s.worker()
-
+	if s.monitor == nil {
+		return E.New("outbound monitoring unavailable")
+	}
+	observer, err := s.monitor.SubscribeGroup(s.Tag())
+	if err != nil {
+		return err
+	}
+	// Monitoring starts before legacy PostStart. Read its current snapshot
+	// after subscribing so cached/fast probe results cannot be missed.
+	s.updateOutbounds()
+	s.workerWG.Add(1)
+	go s.worker(observer)
 	return nil
 }
 
-func (s *Balancer) worker() {
-	observer, err := s.monitor.SubscribeGroup(s.Tag())
-	if err != nil {
-		s.logger.Error("failed to observe monitoring group: ", err)
-		return
+func (s *Balancer) updateOutbounds() {
+	if s.strategyFn.UpdateOutboundsInfo(s.monitor.OutboundsHistory(s.Tag())) {
+		s.interruptGroup.Interrupt(s.interruptExternalConnections)
 	}
+	// A parent's delay follows this group's current selection. Publish only
+	// after updating it, even when just the selected node's delay changed.
+	s.monitor.NotifyGroupHistory(s.Tag())
+}
+
+func (s *Balancer) worker(observer <-chan monitoring.GroupEvent) {
+	defer s.workerWG.Done()
 	defer s.monitor.UnsubscribeGroup(s.Tag(), observer)
 
 	for {
@@ -132,17 +143,15 @@ func (s *Balancer) worker() {
 			if !ok {
 				return
 			}
-			outbounds := s.monitor.OutboundsHistory(s.Tag())
-			if s.strategyFn.UpdateOutboundsInfo(outbounds) {
-				s.interruptGroup.Interrupt(s.interruptExternalConnections)
-			}
+			s.updateOutbounds()
 
 		}
 	}
 }
 func (s *Balancer) Close() error {
 	if s.close != nil {
-		close(s.close)
+		s.closeOnce.Do(func() { close(s.close) })
+		s.workerWG.Wait()
 	}
 	return nil
 }
@@ -159,6 +168,8 @@ func (s *Balancer) All() []string {
 }
 
 func (s *Balancer) DialContext(ctx context.Context, network string, destination M.Socksaddr) (net.Conn, error) {
+	ctx = withDialRetryBudget(ctx)
+	s.monitor.Touch()
 	metadata := adapter.ContextFrom(ctx)
 	if metadata == nil {
 		metadata = &adapter.InboundContext{}
@@ -176,12 +187,26 @@ func (s *Balancer) DialContext(ctx context.Context, network string, destination 
 		return s.interruptGroup.NewConn(conn, interrupt.IsExternalConnectionFromContext(ctx)), nil
 	}
 	s.logger.ErrorContext(ctx, err)
-	s.monitor.InvalidateTest(outbound.Tag())
+	if ctx.Err() == nil {
+		s.monitor.InvalidateTest(outbound.Tag())
+		if next := s.retryOutbound(ctx, outbound, network); next != nil {
+			metadata.SetRealOutbound(next.Tag())
+			conn, err = next.DialContext(ctx, network, destination)
+			if err == nil {
+				return s.interruptGroup.NewConn(conn, interrupt.IsExternalConnectionFromContext(ctx)), nil
+			}
+			if ctx.Err() == nil {
+				s.monitor.InvalidateTest(next.Tag())
+			}
+		}
+	}
 
 	return nil, err
 }
 
 func (s *Balancer) ListenPacket(ctx context.Context, destination M.Socksaddr) (net.PacketConn, error) {
+	ctx = withDialRetryBudget(ctx)
+	s.monitor.Touch()
 	metadata := adapter.ContextFrom(ctx)
 	if metadata == nil {
 		metadata = &adapter.InboundContext{}
@@ -199,34 +224,32 @@ func (s *Balancer) ListenPacket(ctx context.Context, destination M.Socksaddr) (n
 		return s.interruptGroup.NewPacketConn(conn, interrupt.IsExternalConnectionFromContext(ctx)), nil
 	}
 	s.logger.ErrorContext(ctx, err)
-	s.monitor.InvalidateTest(outbound.Tag())
+	if ctx.Err() == nil {
+		s.monitor.InvalidateTest(outbound.Tag())
+		if next := s.retryOutbound(ctx, outbound, N.NetworkUDP); next != nil {
+			metadata.SetRealOutbound(next.Tag())
+			conn, err = next.ListenPacket(ctx, destination)
+			if err == nil {
+				return s.interruptGroup.NewPacketConn(conn, interrupt.IsExternalConnectionFromContext(ctx)), nil
+			}
+			if ctx.Err() == nil {
+				s.monitor.InvalidateTest(next.Tag())
+			}
+		}
+	}
 	return nil, err
 }
 
 func (s *Balancer) NewConnection(ctx context.Context, conn net.Conn, metadata adapter.InboundContext, onClose N.CloseHandlerFunc) {
 	ctx = interrupt.ContextWithIsExternalConnection(ctx)
-	selected := s.strategyFn.Select(metadata, metadata.Network, true)
-	conn = s.interruptGroup.NewConn(conn, interrupt.IsExternalConnectionFromContext(ctx))
-	if outboundHandler, isHandler := selected.(adapter.ConnectionHandler); isHandler {
-		outboundHandler.NewConnection(ctx, conn, metadata, onClose)
-	} else {
-		s.connection.NewConnection(ctx, selected, conn, metadata, onClose)
-	}
+	// Route through our dialer so real inbound traffic gets the same failure
+	// probes and connection interruption as DialContext callers.
+	s.connection.NewConnection(ctx, s, conn, metadata, onClose)
 }
 
 func (s *Balancer) NewPacketConnection(ctx context.Context, conn N.PacketConn, metadata adapter.InboundContext, onClose N.CloseHandlerFunc) {
 	ctx = interrupt.ContextWithIsExternalConnection(ctx)
-	selected := s.strategyFn.Select(metadata, metadata.Network, true)
-	if selected == nil {
-		return
-	}
-	metadata.SetRealOutbound(selected.Tag())
-	conn = s.interruptGroup.NewSingPacketConn(conn, interrupt.IsExternalConnectionFromContext(ctx))
-	if outboundHandler, isHandler := selected.(adapter.PacketConnectionHandler); isHandler {
-		outboundHandler.NewPacketConnection(ctx, conn, metadata, onClose)
-	} else {
-		s.connection.NewPacketConnection(ctx, selected, conn, metadata, onClose)
-	}
+	s.connection.NewPacketConnection(ctx, s, conn, metadata, onClose)
 }
 
 func (s *Balancer) NewDirectRouteConnection(metadata adapter.InboundContext, routeContext tun.DirectRouteContext, timeout time.Duration) (tun.DirectRouteDestination, error) {

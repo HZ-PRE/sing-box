@@ -2,6 +2,7 @@ package option
 
 import (
 	"context"
+	"strings"
 
 	C "github.com/sagernet/sing-box/constant"
 	E "github.com/sagernet/sing/common/exceptions"
@@ -17,9 +18,10 @@ type OutboundOptionsRegistry interface {
 }
 
 type _Outbound struct {
-	Type    string `json:"type"`
-	Tag     string `json:"tag,omitempty"`
-	Options any    `json:"-"`
+	Type        string `json:"type"`
+	Tag         string `json:"tag,omitempty"`
+	CountryCode string `json:"country_code,omitempty"`
+	Options     any    `json:"-"`
 }
 
 type Outbound _Outbound
@@ -33,6 +35,7 @@ func (h *Outbound) UnmarshalJSONContext(ctx context.Context, content []byte) err
 	if err != nil {
 		return err
 	}
+	h.CountryCode = NormalizeCountryCode(h.CountryCode)
 	registry := service.FromContext[OutboundOptionsRegistry](ctx)
 	if registry == nil {
 		return E.New("missing outbound options registry in context")
@@ -57,6 +60,15 @@ func (h *Outbound) UnmarshalJSONContext(ctx context.Context, content []byte) err
 	}
 	h.Options = options
 	return nil
+}
+
+// Country metadata is optional and never affects connection configuration.
+func NormalizeCountryCode(value string) string {
+	value = strings.ToUpper(strings.TrimSpace(value))
+	if len(value) != 2 || value[0] < 'A' || value[0] > 'Z' || value[1] < 'A' || value[1] > 'Z' {
+		return ""
+	}
+	return value
 }
 
 type DialerOptionsWrapper interface {

@@ -342,6 +342,11 @@ func New(options Options) (*Box, error) {
 		if err != nil {
 			return nil, E.Cause(err, "initialize outbound[", i, "]")
 		}
+		if node, ok := outboundManager.Outbound(tag); ok {
+			if metadata, ok := node.(interface{ SetCountryCode(string) }); ok {
+				metadata.SetCountryCode(outboundOptions.CountryCode)
+			}
+		}
 	}
 
 	for i, certificateProviderOptions := range options.CertificateProviders {

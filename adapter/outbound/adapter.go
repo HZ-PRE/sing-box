@@ -8,6 +8,7 @@ import (
 type Adapter struct {
 	outboundType string
 	outboundTag  string
+	countryCode  string
 	network      []string
 	dependencies []string
 }
@@ -35,6 +36,12 @@ func (a *Adapter) Type() string {
 
 func (a *Adapter) Tag() string {
 	return a.outboundTag
+}
+
+func (a *Adapter) CountryCode() string { return a.countryCode }
+
+func (a *Adapter) SetCountryCode(value string) {
+	a.countryCode = option.NormalizeCountryCode(value)
 }
 
 func (a *Adapter) Network() []string {

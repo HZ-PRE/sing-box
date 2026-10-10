@@ -4,14 +4,15 @@ import (
 	"sync"
 
 	"github.com/sagernet/sing-box/adapter"
+	"github.com/sagernet/sing-box/common/monitoring"
 	"github.com/sagernet/sing-box/option"
 	N "github.com/sagernet/sing/common/network"
 )
 
 type LowestDelay struct {
 	outbounds        map[string][]adapter.Outbound
-	udpOutbounds     []adapter.Outbound
 	selectedOutbound map[string]adapter.Outbound
+	tolerance        uint16
 
 	mu sync.Mutex
 }
@@ -20,6 +21,7 @@ func NewLowestDelay(outbounds []adapter.Outbound, options option.BalancerOutboun
 	couts := convertOutbounds(outbounds)
 	return &LowestDelay{
 		outbounds: couts,
+		tolerance: options.Tolerance,
 		selectedOutbound: map[string]adapter.Outbound{
 			N.NetworkUDP: couts[N.NetworkUDP][0],
 			N.NetworkTCP: couts[N.NetworkTCP][0],
@@ -41,6 +43,16 @@ func (s *LowestDelay) UpdateOutboundsInfo(history map[string]*adapter.URLTestHis
 	s.mu.Lock()
 	changed := false
 	for net, out := range min {
+		current := s.selectedOutbound[net]
+		if s.tolerance > 0 && current != nil {
+			h := history[current.Tag()]
+			currentDelay, bestDelay := getTagDelay(current.Tag(), history), getTagDelay(out.Tag(), history)
+			if h != nil && !h.IsFromCache && currentDelay < monitoring.TimeoutDelay &&
+				int(currentDelay)-int(bestDelay) <= int(s.tolerance) {
+				min[net] = current
+				out = current
+			}
+		}
 		changed = changed || out.Tag() != s.selectedOutbound[net].Tag()
 	}
 	s.selectedOutbound = min

@@ -111,7 +111,10 @@ func testUDPSessionIdleTimeout(t *testing.T, proxyPort uint16, echoPort uint16, 
 
 	packetConn.SetReadDeadline(time.Time{})
 
-	waitTime := expectedTimeout + time.Second
+	// The deadline-based canceler checks activity on each read deadline. A
+	// response just after the read began renews activity, so expiry may need
+	// one more deadline interval. Wait for that bound rather than racing it.
+	waitTime := 2*expectedTimeout + time.Second
 	t.Logf("Waiting %v for UDP session to timeout...", waitTime)
 	time.Sleep(waitTime)
 
