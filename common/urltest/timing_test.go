@@ -49,6 +49,34 @@ func TestURLTestTimingBoundary(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if delay < uint16((250*time.Millisecond + tc.handshake).Milliseconds()) {
+			t.Fatalf("dial time excluded for %s: %d", tc.name, delay)
+		}
 		t.Logf("%s: simulated TCP connect=250ms, simulated obfs handshake=%s, displayed=%dms, actual elapsed=%s", tc.name, tc.handshake, delay, time.Since(start))
+	}
+}
+
+func TestDetailedTimingReuse(t *testing.T) {
+	for _, closeAfter := range []bool{false, true} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if closeAfter {
+				w.Header().Set("Connection", "close")
+			}
+			w.WriteHeader(204)
+		}))
+		timing, err := URLTestDetailed(ContextWithIsUnifiedDelay(context.Background()), server.URL, timingDialer{dialDelay: 20 * time.Millisecond})
+		server.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if timing.FirstRequest < 20 || timing.Dial < 20 {
+			t.Fatal("missing setup timing", timing)
+		}
+		if closeAfter && (timing.WarmRequest != 0 || timing.Delay != timing.FirstRequest) {
+			t.Fatal("redial mislabeled warm", timing)
+		}
+		if !closeAfter && timing.WarmRequest == 0 {
+			t.Fatal("reuse not recorded", timing)
+		}
 	}
 }

@@ -48,7 +48,15 @@ func (h *Outbound) UnmarshalJSONContext(ctx context.Context, content []byte) err
 	if !loaded {
 		return E.New("unknown outbound type: ", h.Type)
 	}
-	err = badjson.UnmarshallExcludedContext(ctx, content, (*_Outbound)(h), options)
+	if h.Type == "ssplus" {
+		// udp_over_tcp is the single policy switch; discard the obsolete udp_mode.
+		err = badjson.UnmarshallExcludedContext(ctx, content, &struct {
+			*_Outbound
+			Ignored0 any `json:"udp_mode"`
+		}{_Outbound: (*_Outbound)(h)}, options)
+	} else {
+		err = badjson.UnmarshallExcludedContext(ctx, content, (*_Outbound)(h), options)
+	}
 	if err != nil {
 		return err
 	}

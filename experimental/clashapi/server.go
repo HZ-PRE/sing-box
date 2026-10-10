@@ -67,6 +67,12 @@ type Server struct {
 
 func NewServer(ctx context.Context, logFactory log.ObservableFactory, options option.ClashAPIOptions) (adapter.ClashServer, error) {
 	trafficManager := trafficontrol.NewManager()
+	if options.ClosedConnectionsLimit != nil {
+		if *options.ClosedConnectionsLimit < 0 {
+			return nil, E.New("closed_connections_limit must be nonnegative")
+		}
+		trafficManager.SetClosedConnectionsLimit(*options.ClosedConnectionsLimit)
+	}
 	chiRouter := chi.NewRouter()
 	s := &Server{
 		ctx:       ctx,

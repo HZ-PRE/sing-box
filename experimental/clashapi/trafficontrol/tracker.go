@@ -24,8 +24,36 @@ type TrackerMetadata struct {
 	Download     *atomic.Int64
 	Chain        []string
 	Rule         adapter.Rule
+	RuleText     string
+	RuleDisplay  string
 	Outbound     string
 	OutboundType string
+}
+
+func (t *TrackerMetadata) RuleDescription() string {
+	if t.Rule != nil {
+		return t.Rule.String()
+	}
+	return t.RuleText
+}
+
+func (t *TrackerMetadata) closedSnapshot() TrackerMetadata {
+	copy := *t
+	copy.RuleText = t.RuleDescription()
+	copy.RuleDisplay = "final"
+	if t.Rule != nil {
+		copy.RuleDisplay = F.ToString(t.Rule, " => ", t.Rule.Action())
+	}
+	copy.Rule = nil
+	// Drop routing/sniffing working state; retain the fields used by both UIs.
+	m := t.Metadata
+	copy.Metadata = adapter.InboundContext{
+		Inbound: m.Inbound, InboundType: m.InboundType, IPVersion: m.IPVersion,
+		Network: m.Network, Source: m.Source, Destination: m.Destination,
+		User: m.User, Outbound: m.Outbound, Protocol: m.Protocol, Domain: m.Domain,
+		ProcessInfo: m.ProcessInfo, RealOutbound: m.RealOutbound,
+	}
+	return copy
 }
 
 func (t TrackerMetadata) MarshalJSON() ([]byte, error) {
@@ -58,10 +86,10 @@ func (t TrackerMetadata) MarshalJSON() ([]byte, error) {
 			processPath = F.ToString(processPath, " (", t.Metadata.ProcessInfo.UserId, ")")
 		}
 	}
-	var rule string
+	rule := t.RuleDisplay
 	if t.Rule != nil {
 		rule = F.ToString(t.Rule, " => ", t.Rule.Action())
-	} else {
+	} else if rule == "" {
 		rule = "final"
 	}
 	chains := t.Chain
@@ -155,15 +183,17 @@ func NewTCPTracker(conn net.Conn, manager *Manager, metadata adapter.InboundCont
 	}
 	upload := new(atomic.Int64)
 	download := new(atomic.Int64)
+	outboundUpload := loadCounter(&manager.outboundUploadTotal, outbound)
+	outboundDownload := loadCounter(&manager.outboundDownloadTotal, outbound)
 	tracker := &TCPConn{
 		ExtendedConn: bufio.NewCounterConn(conn, []N.CountFunc{func(n int64) {
 			upload.Add(n)
 			manager.PushUploaded(n)
-			manager.PushOutboundUploaded(outbound, n)
+			outboundUpload.Add(n)
 		}}, []N.CountFunc{func(n int64) {
 			download.Add(n)
 			manager.PushDownloaded(n)
-			manager.PushOutboundDownloaded(outbound, n)
+			outboundDownload.Add(n)
 		}}),
 		metadata: TrackerMetadata{
 			ID:           id,
@@ -238,15 +268,17 @@ func NewUDPTracker(conn N.PacketConn, manager *Manager, metadata adapter.Inbound
 	}
 	upload := new(atomic.Int64)
 	download := new(atomic.Int64)
+	outboundUpload := loadCounter(&manager.outboundUploadTotal, outbound)
+	outboundDownload := loadCounter(&manager.outboundDownloadTotal, outbound)
 	trackerConn := &UDPConn{
 		PacketConn: bufio.NewCounterPacketConn(conn, []N.CountFunc{func(n int64) {
 			upload.Add(n)
 			manager.PushUploaded(n)
-			manager.PushOutboundUploaded(outbound, n)
+			outboundUpload.Add(n)
 		}}, []N.CountFunc{func(n int64) {
 			download.Add(n)
 			manager.PushDownloaded(n)
-			manager.PushOutboundDownloaded(outbound, n)
+			outboundDownload.Add(n)
 		}}),
 		metadata: TrackerMetadata{
 			ID:           id,

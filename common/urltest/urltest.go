@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"sync"
 	"sync/atomic"
@@ -114,7 +115,28 @@ func (s *HistoryStorage) Close() error {
 	return nil
 }
 
-func URLTest(ctx context.Context, link string, detour N.Dialer) (t uint16, err error) {
+// Dial excludes deferred handshakes; FirstRequest always includes all setup.
+// WarmRequest is populated only when HTTP actually reused the connection.
+type Timing struct {
+	Delay        uint16 `json:"delay"`
+	Dial         uint16 `json:"dial"`
+	FirstRequest uint16 `json:"first_request"`
+	WarmRequest  uint16 `json:"warm_request,omitempty"`
+}
+
+func URLTest(ctx context.Context, link string, detour N.Dialer) (uint16, error) {
+	timing, err := URLTestDetailed(ctx, link, detour)
+	return timing.Delay, err
+}
+
+func URLTestDetailed(ctx context.Context, link string, detour N.Dialer) (Timing, error) {
+	var timing Timing
+	delay, err := urlTest(ctx, link, detour, &timing)
+	timing.Delay = delay
+	return timing, err
+}
+
+func urlTest(ctx context.Context, link string, detour N.Dialer, timing *Timing) (t uint16, err error) {
 	if detour == nil {
 		err = fmt.Errorf("urltest dialer is nil")
 		return
@@ -146,9 +168,7 @@ func URLTest(ctx context.Context, link string, detour N.Dialer) (t uint16, err e
 		return
 	}
 	defer instance.Close()
-	if N.NeedHandshakeForWrite(instance) {
-		start = time.Now()
-	}
+	timing.Dial = delayMilliseconds(time.Since(start))
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, link, nil)
 	if err != nil {
 		return
@@ -192,6 +212,7 @@ func URLTest(ctx context.Context, link string, detour N.Dialer) (t uint16, err e
 	resp.Body.Close()
 
 	t = delayMilliseconds(time.Since(start))
+	timing.FirstRequest = t
 
 	if IsUnifiedDelayFromContext(ctx) {
 		select {
@@ -200,12 +221,19 @@ func URLTest(ctx context.Context, link string, detour N.Dialer) (t uint16, err e
 		default:
 		}
 		second := time.Now()
-		resp, err = client.Do(req)
+		var reused atomic.Bool
+		traceCtx := httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+			GotConn: func(info httptrace.GotConnInfo) { reused.Store(info.Reused) },
+		})
+		resp, err = client.Do(req.WithContext(traceCtx))
 		if err != nil {
 			return
 		}
 		resp.Body.Close()
-		t = delayMilliseconds(time.Since(second))
+		if reused.Load() {
+			t = delayMilliseconds(time.Since(second))
+			timing.WarmRequest = t
+		}
 	}
 	return
 }

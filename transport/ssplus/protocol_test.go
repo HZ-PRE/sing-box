@@ -174,7 +174,7 @@ func TestAuthenticationAndReplay(t *testing.T) {
 			t.Fatalf("accepted truncated length %d", length)
 		}
 	}
-	if len(server.replays) != 0 {
+	if len(server.replay.entries) != 0 {
 		t.Fatal("unauthenticated data populated replay cache")
 	}
 	if err := accept(request); err != nil {
@@ -422,7 +422,9 @@ func TestReplayCacheBoundAndExpiry(t *testing.T) {
 	for i := 0; i < maxReplayEntries; i++ {
 		var token [IVSize]byte
 		binary.BigEndian.PutUint64(token[:8], uint64(i))
-		server.replays[token] = now.Add(2 * clockWindow)
+		if !server.remember(token[:], now) {
+			t.Fatal("entry rejected before capacity")
+		}
 	}
 	iv := bytes.Repeat([]byte{0xff}, IVSize)
 	if server.remember(iv, now) {

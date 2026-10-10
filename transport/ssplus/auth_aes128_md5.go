@@ -101,6 +101,32 @@ func aesFrameKey(key []byte, sequence uint32) []byte {
 }
 
 func encodeAESData(payload, key []byte, sequence uint32) ([]byte, error) {
+	return new(aesDataCodec).encode(payload, key, sequence)
+}
+
+type aesDataCodec struct {
+	buffer []byte
+	key    []byte
+	sum    [md5.Size]byte
+}
+
+func (c *aesDataCodec) frameKey(key []byte, sequence uint32) []byte {
+	if len(c.key) != len(key)+4 {
+		c.key = make([]byte, len(key)+4)
+		copy(c.key, key)
+	}
+	binary.LittleEndian.PutUint32(c.key[len(key):], sequence)
+	return c.key
+}
+
+func (c *aesDataCodec) frame(size int) []byte {
+	if cap(c.buffer) < size {
+		c.buffer = make([]byte, min(8192, max(256, size*2)))
+	}
+	return c.buffer[:size]
+}
+
+func (c *aesDataCodec) encode(payload, key []byte, sequence uint32) ([]byte, error) {
 	if sequence == 0 || len(payload) > ssrMaxPayload {
 		return nil, errAESFrame
 	}
@@ -109,20 +135,27 @@ func encodeAESData(payload, key []byte, sequence uint32) ([]byte, error) {
 		return nil, err
 	}
 	padding := int(random[0]&31) + 1
-	frame := make([]byte, 8+padding+len(payload))
+	frame := c.frame(8 + padding + len(payload))
 	binary.LittleEndian.PutUint16(frame, uint16(len(frame)))
-	macKey := aesFrameKey(key, sequence)
-	copy(frame[2:4], md5MAC(macKey, frame[:2])[:2])
+	mac := hmac.New(md5.New, c.frameKey(key, sequence))
+	mac.Write(frame[:2])
+	copy(frame[2:4], mac.Sum(c.sum[:0])[:2])
 	frame[4] = byte(padding)
 	if _, err := rand.Read(frame[5 : 4+padding]); err != nil {
 		return nil, err
 	}
 	copy(frame[4+padding:], payload)
-	copy(frame[len(frame)-4:], md5MAC(macKey, frame[:len(frame)-4])[:4])
+	mac.Reset()
+	mac.Write(frame[:len(frame)-4])
+	copy(frame[len(frame)-4:], mac.Sum(c.sum[:0])[:4])
 	return frame, nil
 }
 
 func readAESData(r io.Reader, key []byte, sequence uint32) ([]byte, error) {
+	return new(aesDataCodec).read(r, key, sequence)
+}
+
+func (c *aesDataCodec) read(r io.Reader, key []byte, sequence uint32) ([]byte, error) {
 	if sequence == 0 {
 		return nil, errAESFrame
 	}
@@ -130,20 +163,23 @@ func readAESData(r io.Reader, key []byte, sequence uint32) ([]byte, error) {
 	if _, err := io.ReadFull(r, header[:]); err != nil {
 		return nil, err
 	}
-	macKey := aesFrameKey(key, sequence)
-	if !hmac.Equal(header[2:], md5MAC(macKey, header[:2])[:2]) {
+	mac := hmac.New(md5.New, c.frameKey(key, sequence))
+	mac.Write(header[:2])
+	if !hmac.Equal(header[2:], mac.Sum(c.sum[:0])[:2]) {
 		return nil, errAESFrame
 	}
 	length := int(binary.LittleEndian.Uint16(header[:2]))
 	if length < 9 || length >= 8192 {
 		return nil, errAESFrame
 	}
-	frame := make([]byte, length)
+	frame := c.frame(length)
 	copy(frame, header[:])
 	if _, err := io.ReadFull(r, frame[4:]); err != nil {
 		return nil, err
 	}
-	if !hmac.Equal(frame[length-4:], md5MAC(macKey, frame[:length-4])[:4]) {
+	mac.Reset()
+	mac.Write(frame[:length-4])
+	if !hmac.Equal(frame[length-4:], mac.Sum(c.sum[:0])[:4]) {
 		return nil, errAESFrame
 	}
 	padding := int(frame[4])
@@ -170,6 +206,7 @@ type aesMD5Conn struct {
 	pending                     []byte
 	readMutex, writeMutex       sync.Mutex
 	readErr, writeErr           error
+	decoder, encoder            aesDataCodec
 }
 
 func newAESMD5Conn(conn net.Conn, key, iv []byte, client bool) net.Conn {
@@ -190,7 +227,7 @@ func (c *aesMD5Conn) Read(p []byte) (int, error) {
 			c.pending, c.readErr = readAESAuth(c.Conn, c.key, c.iv, time.Now())
 			c.readAuth = false
 		} else {
-			c.pending, c.readErr = readAESData(c.Conn, c.key, c.readSequence)
+			c.pending, c.readErr = c.decoder.read(c.Conn, c.key, c.readSequence)
 			c.readSequence++
 		}
 		if c.readErr != nil {
@@ -218,7 +255,7 @@ func (c *aesMD5Conn) Write(p []byte) (int, error) {
 			frame, err = encodeAESAuth(p[:size], c.key, c.iv, time.Now())
 			c.writeAuth = false
 		} else {
-			frame, err = encodeAESData(p[:size], c.key, c.writeSequence)
+			frame, err = c.encoder.encode(p[:size], c.key, c.writeSequence)
 			c.writeSequence++
 		}
 		if err == nil {

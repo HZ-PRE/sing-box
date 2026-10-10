@@ -1027,10 +1027,7 @@ func (s *StartedService) buildTrafficUpdates(manager *trafficontrol.Manager, sna
 }
 
 func buildConnectionProto(metadata *trafficontrol.TrackerMetadata) *Connection {
-	var rule string
-	if metadata.Rule != nil {
-		rule = metadata.Rule.String()
-	}
+	rule := metadata.RuleDescription()
 	uplinkTotal := metadata.Upload.Load()
 	downlinkTotal := metadata.Download.Load()
 	var processInfo *ProcessInfo

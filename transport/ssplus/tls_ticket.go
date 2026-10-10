@@ -248,7 +248,9 @@ func (s *Server) serverTicketHandshake(conn net.Conn) (net.Conn, error) {
 
 type ticketConn struct {
 	net.Conn
-	pending               []byte
+	header                [5]byte
+	remaining             int
+	writeBuffer           []byte
 	readMutex, writeMutex sync.Mutex
 	readErr, writeErr     error
 }
@@ -262,20 +264,29 @@ func (c *ticketConn) Read(p []byte) (int, error) {
 	if c.readErr != nil {
 		return 0, c.readErr
 	}
-	if len(c.pending) == 0 {
-		record, err := readTLSRecord(c.Conn)
-		if err == nil && (record[0] != 0x17 || record[1] != 3 || record[2] != 3) {
+	if c.remaining == 0 {
+		_, err := io.ReadFull(c.Conn, c.header[:])
+		size := int(binary.BigEndian.Uint16(c.header[3:]))
+		if err == nil && (c.header[0] != 0x17 || c.header[1] != 3 || c.header[2] != 3 || size == 0 || size > maxTLSRecord) {
 			err = errTicket
 		}
 		if err != nil {
 			c.readErr = err
 			return 0, err
 		}
-		c.pending = record[5:]
+		c.remaining = size
 	}
-	n := copy(p, c.pending)
-	c.pending = c.pending[n:]
-	return n, nil
+	// Stream the body directly into the caller's buffer. No per-record payload
+	// allocation or retained copy is needed, including for fragmented reads.
+	n, err := io.ReadFull(c.Conn, p[:min(len(p), c.remaining)])
+	c.remaining -= n
+	if err != nil {
+		if err == io.EOF {
+			err = io.ErrUnexpectedEOF
+		}
+		c.readErr = err
+	}
+	return n, err
 }
 
 func (c *ticketConn) Write(p []byte) (int, error) {
@@ -286,8 +297,25 @@ func (c *ticketConn) Write(p []byte) (int, error) {
 	}
 	total := 0
 	for len(p) > 0 {
-		size := min(len(p), 4096)
-		if err := writeFull(c.Conn, tlsRecord(0x17, 0x0303, p[:size])); err != nil {
+		size := min(len(p), maxTLSRecord)
+		wireSize := size + 5*((size+4095)/4096)
+		if len(c.writeBuffer) < wireSize {
+			capacity := max(256, len(c.writeBuffer))
+			for capacity < wireSize {
+				capacity *= 2
+			}
+			c.writeBuffer = make([]byte, min(capacity, maxTLSRecord+20))
+		}
+		for offset, wire := 0, 0; offset < size; {
+			n := min(4096, size-offset)
+			record := c.writeBuffer[wire : wire+5+n]
+			record[0], record[1], record[2] = 0x17, 3, 3
+			binary.BigEndian.PutUint16(record[3:], uint16(n))
+			copy(record[5:], p[offset:offset+n])
+			offset += n
+			wire += n + 5
+		}
+		if err := writeFull(c.Conn, c.writeBuffer[:wireSize]); err != nil {
 			c.writeErr = err
 			return total, err
 		}

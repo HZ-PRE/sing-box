@@ -9,11 +9,13 @@ import (
 	"github.com/sagernet/sing/common/uot"
 )
 
-// Adapt the existing UoT codec to net.PacketConn: preserve domain destinations,
-// report payload byte counts, and consume truncated datagrams without losing framing.
+// Consume the complete frame on short reads and preserve domain destinations.
+// Return the pooled buffer after each read instead of keeping it on the conn.
+// A pending ReadFrom still owns its buffer until it completes or is canceled.
 type packetConn struct {
 	*uot.Conn
-	readMutex sync.Mutex
+	readMutex  sync.Mutex
+	writeMutex sync.Mutex
 }
 
 func (c *packetConn) ReadFrom(p []byte) (int, net.Addr, error) {
@@ -40,6 +42,8 @@ func (c *packetConn) WriteTo(p []byte, addr net.Addr) (int, error) {
 	if len(p) > 65535 {
 		return 0, io.ErrShortBuffer
 	}
+	c.writeMutex.Lock()
+	defer c.writeMutex.Unlock()
 	if _, err := c.Conn.WriteTo(p, addr); err != nil {
 		return 0, err
 	}

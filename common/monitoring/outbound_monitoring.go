@@ -703,11 +703,15 @@ func (m *OutboundMonitoring) tester(parent context.Context, tag string) (adapter
 	ctx, cancel := context.WithTimeout(parent, m.urlTestTimeout)
 	defer cancel()
 
-	delay, err := urltest.URLTest(ctx, m.urls[idx], out.outbound)
+	timing, err := urltest.URLTestDetailed(ctx, m.urls[idx], out.outbound)
+	delay := timing.Delay
 
 	his := adapter.URLTestHistory{
-		Time:  time.Now(),
-		Delay: delay,
+		Time:              time.Now(),
+		Delay:             delay,
+		DialDelay:         timing.Dial,
+		FirstRequestDelay: timing.FirstRequest,
+		WarmRequestDelay:  timing.WarmRequest,
 	}
 	if err != nil || delay >= TimeoutDelay {
 		his.Delay = TimeoutDelay

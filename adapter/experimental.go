@@ -21,10 +21,13 @@ type ClashServer interface {
 }
 
 type URLTestHistory struct {
-	Time        time.Time      `json:"time"`
-	Delay       uint16         `json:"delay"`
-	IpInfo      *ipinfo.IpInfo `json:"ipinfo"`
-	IsFromCache bool           `json:"from_cache"`
+	Time              time.Time      `json:"time"`
+	Delay             uint16         `json:"delay"`
+	DialDelay         uint16         `json:"dial_delay,omitempty"`
+	FirstRequestDelay uint16         `json:"first_request_delay,omitempty"`
+	WarmRequestDelay  uint16         `json:"warm_request_delay,omitempty"`
+	IpInfo            *ipinfo.IpInfo `json:"ipinfo"`
+	IsFromCache       bool           `json:"from_cache"`
 }
 
 type URLTestHistoryStorage interface {

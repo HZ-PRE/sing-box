@@ -44,11 +44,12 @@ type credential struct {
 }
 
 type Config struct {
-	method   byte
-	plugin   byte
-	ivKey    []byte
-	obfs     bool
-	obfsHost string
+	nativePadding int
+	method        byte
+	plugin        byte
+	ivKey         []byte
+	obfs          bool
+	obfsHost      string
 }
 
 // NewConfig accepts only authenticated ciphers and explicit, shared plugin settings.
@@ -57,7 +58,7 @@ func NewConfig(method, plugin, ivKey string) (*Config, error) {
 }
 
 func NewConfigWithObfs(method, plugin, ivKey, obfs, host string) (*Config, error) {
-	c := new(Config)
+	c := &Config{nativePadding: nativePaddingMax}
 	switch obfs {
 	case "", "plain":
 		if host != "" {
@@ -187,6 +188,8 @@ func NewClient(config *Config, user User) (*Client, error) {
 // DialConn sends the destination immediately, including for server-first TCP protocols.
 // The caller owns conn and must close it on error and impose a handshake deadline.
 func (c *Client) DialConn(conn net.Conn, destination M.Socksaddr) (net.Conn, error) {
+	buffered := &handshakeBuffer{Conn: conn, active: true}
+	conn = buffered
 	if c.config.obfs {
 		var err error
 		conn, err = clientTicketHandshake(conn, c.config.ivKey, c.config.obfsHost)
@@ -216,6 +219,11 @@ func (c *Client) DialConn(conn net.Conn, destination M.Socksaddr) (net.Conn, err
 	if err = writeFull(result, address.Bytes()); err != nil {
 		return nil, err
 	}
+	if err = buffered.flush(); err != nil {
+		return nil, err
+	}
+	buffered.active = false
+	buffered.buffer = bytes.Buffer{}
 	return result, nil
 }
 
@@ -223,9 +231,7 @@ type Server struct {
 	config     *Config
 	users      map[uint32]*credential
 	usersMutex sync.RWMutex
-	mutex      sync.Mutex
-	replays    map[[IVSize]byte]time.Time
-	lastSweep  time.Time
+	replay     replayCache
 }
 
 func NewServer(config *Config, users []User) (*Server, error) {
@@ -237,7 +243,7 @@ func NewServer(config *Config, users []User) (*Server, error) {
 
 // NewManagedServer permits an empty user list, which denies all connections until AddUser.
 func NewManagedServer(config *Config, users []User) (*Server, error) {
-	s := &Server{config: config, users: make(map[uint32]*credential), replays: make(map[[IVSize]byte]time.Time)}
+	s := &Server{config: config, users: make(map[uint32]*credential)}
 	for _, user := range users {
 		if err := s.AddUser(user); err != nil {
 			return nil, err
@@ -316,26 +322,7 @@ func (s *Server) Accept(conn net.Conn) (net.Conn, M.Socksaddr, User, error) {
 }
 
 func (s *Server) remember(iv []byte, now time.Time) bool {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	if now.Sub(s.lastSweep) >= time.Second {
-		for token, expiry := range s.replays {
-			if !now.Before(expiry) {
-				delete(s.replays, token)
-			}
-		}
-		s.lastSweep = now
-	}
-	token := [IVSize]byte(iv)
-	if _, exists := s.replays[token]; exists {
-		return false
-	}
-	// Fail closed when full: never evict a live entry and reopen its replay window.
-	if len(s.replays) >= maxReplayEntries {
-		return false
-	}
-	s.replays[token] = now.Add(2*clockWindow + time.Second)
-	return true
+	return s.replay.remember(iv, now)
 }
 
 type streamConn struct {

@@ -1,12 +1,12 @@
 package trafficontrol
 
 import (
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/sagernet/sing-box/common/compatible"
+	"github.com/sagernet/sing-box/common/memorystats"
 	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing/common"
 	"github.com/sagernet/sing/common/json"
@@ -43,13 +43,23 @@ type Manager struct {
 	connections             compatible.Map[uuid.UUID, Tracker]
 	closedConnectionsAccess sync.Mutex
 	closedConnections       list.List[TrackerMetadata]
-	memory                  uint64
+	closedLimit             int
 
 	eventSubscriber *observable.Subscriber[ConnectionEvent]
 }
 
 func NewManager() *Manager {
-	return &Manager{}
+	return &Manager{closedLimit: closedConnectionsLimit}
+}
+
+// SetClosedConnectionsLimit keeps the default when omitted; zero disables history.
+func (m *Manager) SetClosedConnectionsLimit(limit int) {
+	m.closedConnectionsAccess.Lock()
+	defer m.closedConnectionsAccess.Unlock()
+	m.closedLimit = max(0, limit)
+	for m.closedConnections.Len() > m.closedLimit {
+		m.closedConnections.PopFront()
+	}
 }
 
 func (m *Manager) SetEventHook(subscriber *observable.Subscriber[ConnectionEvent]) {
@@ -74,12 +84,14 @@ func (m *Manager) Leave(c Tracker) {
 	if loaded {
 		closedAt := time.Now()
 		metadata.ClosedAt = closedAt
-		metadataCopy := *metadata
+		metadataCopy := metadata.closedSnapshot()
 		m.closedConnectionsAccess.Lock()
-		if m.closedConnections.Len() >= closedConnectionsLimit {
+		if m.closedLimit > 0 && m.closedConnections.Len() >= m.closedLimit {
 			m.closedConnections.PopFront()
 		}
-		m.closedConnections.PushBack(metadataCopy)
+		if m.closedLimit > 0 {
+			m.closedConnections.PushBack(metadataCopy)
+		}
 		m.closedConnectionsAccess.Unlock()
 		if m.eventSubscriber != nil {
 			m.eventSubscriber.Emit(ConnectionEvent{
@@ -101,13 +113,25 @@ func (m *Manager) PushDownloaded(size int64) {
 }
 
 func (m *Manager) PushOutboundUploaded(outbound string, size int64) {
-	v, _ := m.outboundUploadTotal.LoadOrStore(outbound, &atomic.Int64{})
-	v.(*atomic.Int64).Add(size)
+	loadCounter(&m.outboundUploadTotal, outbound).Add(size)
 }
 
 func (m *Manager) PushOutboundDownloaded(outbound string, size int64) {
-	v, _ := m.outboundDownloadTotal.LoadOrStore(outbound, &atomic.Int64{})
-	v.(*atomic.Int64).Add(size)
+	loadCounter(&m.outboundDownloadTotal, outbound).Add(size)
+}
+
+func loadCounter(counters *sync.Map, outbound string) *atomic.Int64 {
+	if value, ok := counters.Load(outbound); ok {
+		return value.(*atomic.Int64)
+	}
+	value, _ := counters.LoadOrStore(outbound, new(atomic.Int64))
+	return value.(*atomic.Int64)
+}
+
+// Memory samples once per second, independently of connection-list subscribers.
+// This reports Go-managed committed memory, not process RSS.
+func (m *Manager) Memory() uint64 {
+	return memorystats.Inuse()
 }
 
 func (m *Manager) Total() (up int64, down int64) {
@@ -168,15 +192,11 @@ func (m *Manager) Snapshot() *Snapshot {
 		return true
 	})
 
-	var memStats runtime.MemStats
-	runtime.ReadMemStats(&memStats)
-	m.memory = memStats.StackInuse + memStats.HeapInuse + memStats.HeapIdle - memStats.HeapReleased
-
 	return &Snapshot{
 		Upload:      m.uploadTotal.Load(),
 		Download:    m.downloadTotal.Load(),
 		Connections: connections,
-		Memory:      m.memory,
+		Memory:      m.Memory(),
 	}
 }
 
@@ -184,11 +204,11 @@ func (m *Manager) ResetStatistic() {
 	m.uploadTotal.Store(0)
 	m.downloadTotal.Store(0)
 	m.outboundUploadTotal.Range(func(key, value any) bool {
-		m.outboundUploadTotal.Delete(key)
+		value.(*atomic.Int64).Store(0)
 		return true
 	})
 	m.outboundDownloadTotal.Range(func(key, value any) bool {
-		m.outboundDownloadTotal.Delete(key)
+		value.(*atomic.Int64).Store(0)
 		return true
 	})
 }

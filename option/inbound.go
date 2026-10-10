@@ -40,7 +40,15 @@ func (h *Inbound) UnmarshalJSONContext(ctx context.Context, content []byte) erro
 	if !loaded {
 		return E.New("unknown inbound type: ", h.Type)
 	}
-	err = badjson.UnmarshallExcludedContext(ctx, content, (*_Inbound)(h), options)
+	if h.Type == "ssplus" {
+		// Retired SS+ UDP switches are discarded; only native UDP v3 remains.
+		err = badjson.UnmarshallExcludedContext(ctx, content, &struct {
+			*_Inbound
+			Ignored0 any `json:"native_udp"`
+		}{_Inbound: (*_Inbound)(h)}, options)
+	} else {
+		err = badjson.UnmarshallExcludedContext(ctx, content, (*_Inbound)(h), options)
+	}
 	if err != nil {
 		return err
 	}
