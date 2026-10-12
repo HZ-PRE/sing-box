@@ -1,6 +1,7 @@
 package box
 
 import (
+	"net"
 	"net/http"
 	"net/http/pprof"
 	"runtime"
@@ -19,13 +20,20 @@ import (
 
 var debugHTTPServer *http.Server
 
-func applyDebugListenOption(options option.DebugOptions) {
+func applyDebugListenOption(options option.DebugOptions) error {
+	if options.Listen != "" {
+		host, _, err := net.SplitHostPort(options.Listen)
+		ip := net.ParseIP(host)
+		if err != nil || ip == nil || !ip.IsLoopback() {
+			return E.New("debug HTTP must listen on a numeric loopback address")
+		}
+	}
 	if debugHTTPServer != nil {
 		debugHTTPServer.Close()
 		debugHTTPServer = nil
 	}
 	if options.Listen == "" {
-		return
+		return nil
 	}
 	r := chi.NewMux()
 	r.Route("/debug", func(r chi.Router) {
@@ -73,4 +81,5 @@ func applyDebugListenOption(options option.DebugOptions) {
 			log.Error(E.Cause(err, "serve debug HTTP server"))
 		}
 	}()
+	return nil
 }

@@ -8,7 +8,9 @@ import (
 )
 
 func applyDebugOptions(options option.DebugOptions) error {
-	applyDebugListenOption(options)
+	if err := applyDebugListenOption(options); err != nil {
+		return err
+	}
 	if options.GCPercent != nil {
 		debug.SetGCPercent(*options.GCPercent)
 	}

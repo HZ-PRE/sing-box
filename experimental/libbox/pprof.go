@@ -14,7 +14,7 @@ type PProfServer struct {
 func NewPProfServer(port int) *PProfServer {
 	return &PProfServer{
 		&http.Server{
-			Addr: ":" + strconv.Itoa(port),
+			Addr: net.JoinHostPort("127.0.0.1", strconv.Itoa(port)),
 		},
 	}
 }
