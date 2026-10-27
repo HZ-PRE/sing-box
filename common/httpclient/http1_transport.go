@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/sagernet/sing-box/common/tls"
 	M "github.com/sagernet/sing/common/metadata"
@@ -16,6 +17,11 @@ type http1Transport struct {
 
 func newHTTP1Transport(rawDialer N.Dialer, baseTLSConfig tls.Config) *http1Transport {
 	transport := &http.Transport{
+		MaxIdleConns:          32,
+		MaxIdleConnsPerHost:   4,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: time.Second,
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			return rawDialer.DialContext(ctx, network, M.ParseSocksaddr(addr))
 		},

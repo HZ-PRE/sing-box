@@ -1,4 +1,4 @@
-//go:build linux && go1.25 && !badlinkname
+//go:build linux && !badlinkname
 
 package ktls
 

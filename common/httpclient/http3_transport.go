@@ -15,7 +15,6 @@ import (
 	"github.com/sagernet/sing-box/common/tls"
 	"github.com/sagernet/sing-box/option"
 	"github.com/sagernet/sing/common/bufio"
-	E "github.com/sagernet/sing/common/exceptions"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
 )
@@ -28,6 +27,8 @@ type http3BrokenEntry struct {
 	until   time.Time
 	backoff time.Duration
 }
+
+const maxHTTP3BrokenAuthorities = 256
 
 type http3FallbackTransport struct {
 	h3Transport   *http3.Transport
@@ -154,9 +155,16 @@ func (t *http3FallbackTransport) roundTripHTTP3(request *http.Request) (*http.Re
 	}
 	if !errors.Is(err, http3.ErrNoCachedConn) {
 		t.markH3Broken(authority)
-		return t.h2FallbackRoundTrip(cloneRequestForRetry(request))
+		if !requestCanRace(request) {
+			return nil, err
+		}
+		retry, retryErr := cloneRequestForRetry(request)
+		if retryErr != nil {
+			return nil, retryErr
+		}
+		return t.h2FallbackRoundTrip(retry)
 	}
-	if !requestReplayable(request) {
+	if !requestCanRace(request) {
 		response, err = t.h3Transport.RoundTrip(request)
 		if err == nil {
 			t.clearH3Broken(authority)
@@ -169,99 +177,13 @@ func (t *http3FallbackTransport) roundTripHTTP3(request *http.Request) (*http.Re
 }
 
 func (t *http3FallbackTransport) roundTripHTTP3Race(request *http.Request, authority string) (*http.Response, error) {
-	ctx, cancel := context.WithCancel(request.Context())
-	defer cancel()
-	type result struct {
-		response *http.Response
-		err      error
-		h3       bool
+	response, h3, err := raceRoundTrip(request, t.fallbackDelay, t.h3Transport.RoundTrip, t.h2FallbackRoundTrip, func() { t.markH3Broken(authority) })
+	if err == nil && h3 {
+		t.clearH3Broken(authority)
 	}
-	results := make(chan result, 2)
-	startRoundTrip := func(request *http.Request, useH3 bool) {
-		request = request.WithContext(ctx)
-		var (
-			response *http.Response
-			err      error
-		)
-		if useH3 {
-			response, err = t.h3Transport.RoundTrip(request)
-		} else {
-			response, err = t.h2FallbackRoundTrip(request)
-		}
-		results <- result{response: response, err: err, h3: useH3}
-	}
-	goroutines := 1
-	received := 0
-	drainRemaining := func() {
-		cancel()
-		for range goroutines - received {
-			go func() {
-				loser := <-results
-				if loser.response != nil && loser.response.Body != nil {
-					loser.response.Body.Close()
-				}
-			}()
-		}
-	}
-	go startRoundTrip(cloneRequestForRetry(request), true)
-	timer := time.NewTimer(t.fallbackDelay)
-	defer timer.Stop()
-	var (
-		h3Err       error
-		fallbackErr error
-	)
-	for {
-		select {
-		case <-timer.C:
-			if goroutines == 1 {
-				goroutines++
-				go startRoundTrip(cloneRequestForRetry(request), false)
-			}
-		case raceResult := <-results:
-			received++
-			if raceResult.err == nil {
-				if raceResult.h3 {
-					t.clearH3Broken(authority)
-				}
-				drainRemaining()
-				return raceResult.response, nil
-			}
-			if raceResult.h3 {
-				t.markH3Broken(authority)
-				h3Err = raceResult.err
-				if goroutines == 1 {
-					goroutines++
-					if !timer.Stop() {
-						select {
-						case <-timer.C:
-						default:
-						}
-					}
-					go startRoundTrip(cloneRequestForRetry(request), false)
-				}
-			} else {
-				fallbackErr = raceResult.err
-			}
-			if received < goroutines {
-				continue
-			}
-			drainRemaining()
-			switch {
-			case h3Err != nil && fallbackErr != nil:
-				return nil, E.Errors(h3Err, fallbackErr)
-			case fallbackErr != nil:
-				return nil, fallbackErr
-			default:
-				return nil, h3Err
-			}
-		}
-	}
+	return response, err
 }
-
 func (t *http3FallbackTransport) h2FallbackRoundTrip(request *http.Request) (*http.Response, error) {
-	if fallback, isFallback := t.h2Fallback.(*http2FallbackTransport); isFallback {
-		return fallback.roundTrip(request, true)
-	}
 	return t.h2Fallback.RoundTrip(request)
 }
 
@@ -307,6 +229,23 @@ func (t *http3FallbackTransport) markH3Broken(authority string) {
 	}
 	t.brokenAccess.Lock()
 	defer t.brokenAccess.Unlock()
+	now := time.Now()
+	if _, exists := t.broken[authority]; !exists && len(t.broken) >= maxHTTP3BrokenAuthorities {
+		var oldest string
+		var oldestUntil time.Time
+		for key, value := range t.broken {
+			if !now.Before(value.until) {
+				delete(t.broken, key)
+				continue
+			}
+			if oldestUntil.IsZero() || value.until.Before(oldestUntil) {
+				oldest, oldestUntil = key, value.until
+			}
+		}
+		if len(t.broken) >= maxHTTP3BrokenAuthorities {
+			delete(t.broken, oldest)
+		}
+	}
 	entry := t.broken[authority]
 	if entry.backoff == 0 {
 		entry.backoff = 5 * time.Minute
@@ -316,6 +255,6 @@ func (t *http3FallbackTransport) markH3Broken(authority string) {
 			entry.backoff = 48 * time.Hour
 		}
 	}
-	entry.until = time.Now().Add(entry.backoff)
+	entry.until = now.Add(entry.backoff)
 	t.broken[authority] = entry
 }

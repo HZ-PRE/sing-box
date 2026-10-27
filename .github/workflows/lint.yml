@@ -60,20 +60,23 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: ^1.25
+          go-version: '1.27.3'
       - name: Cache go module
         uses: actions/cache@v4
         with:
           path: |
             ~/go/pkg/mod
           key: go-${{ hashFiles('**/go.sum') }}
+      # Install for the runner before applying the target GOOS/GOARCH below.
+      # Building from source keeps the linter on the same Go version as the code.
+      - name: Install golangci-lint
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         with:
-          version: latest
           args: --timeout=30m
-          install-mode: binary
+          install-mode: none
           verify: false

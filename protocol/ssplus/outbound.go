@@ -10,6 +10,7 @@ import (
 
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/adapter/outbound"
+	"github.com/sagernet/sing-box/common/diagnostics"
 	"github.com/sagernet/sing-box/common/dialer"
 	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing-box/log"
@@ -148,7 +149,7 @@ func (h *Outbound) racePacket(ctx context.Context, destination M.Socksaddr, conn
 	raceCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	results := make(chan result, 2)
-	go func() { c, err := h.listenNative(raceCtx); results <- result{c, err, true} }()
+	diagnostics.Go(raceCtx, diagnostics.SSPlus, func(ctx context.Context) { c, err := h.listenNative(ctx); results <- result{c, err, true} })
 	pending := 1
 	uotStarted := false
 	startUOT := func() {
@@ -157,7 +158,10 @@ func (h *Outbound) racePacket(ctx context.Context, destination M.Socksaddr, conn
 		}
 		uotStarted = true
 		pending++
-		go func() { c, err := h.listenUOT(raceCtx, destination, connect); results <- result{c, err, false} }()
+		diagnostics.Go(raceCtx, diagnostics.SSPlus, func(ctx context.Context) {
+			c, err := h.listenUOT(ctx, destination, connect)
+			results <- result{c, err, false}
+		})
 	}
 	timer := time.NewTimer(250 * time.Millisecond)
 	defer timer.Stop()

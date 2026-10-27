@@ -12,6 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/sagernet/sing-box/common/diagnostics"
 	"github.com/sagernet/sing-box/option"
 )
 
@@ -103,8 +104,8 @@ func (c *DefaultDialerClient) OpenStream(ctx context.Context, url string, sessio
 		req.Header.Set("Content-Type", "application/grpc")
 	}
 	wrc = &WaitReadCloser{ctx: ctx, cancel: cancel, Wait: make(chan struct{})}
-	go func() {
-		resp, err := c.client.Do(req)
+	diagnostics.Go(ctx, diagnostics.XHTTP, func(ctx context.Context) {
+		resp, err := c.client.Do(req.WithContext(ctx))
 		if err != nil {
 			if !uploadOnly && ctx.Err() == nil { // stream-down is enough
 				c.closed.Store(true)
@@ -122,7 +123,7 @@ func (c *DefaultDialerClient) OpenStream(ctx context.Context, url string, sessio
 			return
 		}
 		wrc.(*WaitReadCloser).Set(resp.Body)
-	}()
+	})
 	select {
 	case result := <-gotConn:
 		remoteAddr, localAddr, err = result.remote, result.local, result.err

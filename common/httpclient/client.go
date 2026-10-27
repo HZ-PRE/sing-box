@@ -48,6 +48,7 @@ func NewTransport(ctx context.Context, logger logger.ContextLogger, tag string, 
 				return newAppleTransport(ctx, logger, rawDialer, options)
 			},
 		}
+		managedTransport.lifetime, managedTransport.cancel = context.WithCancel(context.Background())
 		managedTransport.epoch.Store(&transportEpoch{transport: inner})
 		return managedTransport, nil
 	case "", C.TLSEngineGo:
@@ -80,6 +81,7 @@ func NewTransport(ctx context.Context, logger logger.ContextLogger, tag string, 
 			return newTransport(rawDialer, baseTLSConfig, options)
 		},
 	}
+	managedTransport.lifetime, managedTransport.cancel = context.WithCancel(context.Background())
 	managedTransport.epoch.Store(&transportEpoch{transport: inner})
 	return managedTransport, nil
 }

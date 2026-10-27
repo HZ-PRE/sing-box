@@ -219,7 +219,6 @@ func (t *adaptiveTimer) poll() {
 			t.network.ResetNetwork()
 		}
 	}
-	badCleanup()
 	runtimeDebug.FreeOSMemory()
 }
 

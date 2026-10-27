@@ -48,7 +48,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: ^1.25.6
+          go-version: '1.27.3'
       - name: Check input version
         if: github.event_name == 'workflow_dispatch'
         run: |-
@@ -102,8 +102,6 @@ jobs:
           # # - { os: linux, arch: riscv64, debian: riscv64, rpm: riscv64, openwrt: "riscv64_generic" }
           # # - { os: linux, arch: loong64, debian: loongarch64, rpm: loongarch64, openwrt: "loongarch64_generic" }
 
-          # - { os: windows, arch: amd64, legacy_win7: true, legacy_name: "windows-7" }
-          # - { os: windows, arch: "386", legacy_win7: true, legacy_name: "windows-7" }
 
           # # - { os: android, arch: arm64, ndk: "aarch64-linux-android23" }
           # # - { os: android, arch: arm, ndk: "armv7a-linux-androideabi23" }
@@ -116,32 +114,9 @@ jobs:
           fetch-depth: 0
           submodules: 'recursive'
       - name: Setup Go
-        if: ${{ ! (matrix.legacy_win7 || matrix.legacy_go124) }}
         uses: actions/setup-go@v5
         with:
-          go-version: ^1.25.6
-      - name: Setup Go 1.24
-        if: matrix.legacy_go124
-        uses: actions/setup-go@v5
-        with:
-          go-version: ~1.24.10
-      - name: Cache Go for Windows 7
-        if: matrix.legacy_win7
-        id: cache-go-for-windows7
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/go/go_win7
-          key: go_win7_1255
-      - name: Setup Go for Windows 7
-        if: matrix.legacy_win7 && steps.cache-go-for-windows7.outputs.cache-hit != 'true'
-        run: |-
-          .github/setup_go_for_windows7.sh
-      - name: Setup Go for Windows 7
-        if: matrix.legacy_win7
-        run: |-
-          echo "PATH=$HOME/go/go_win7/bin:$PATH" >> $GITHUB_ENV
-          echo "GOROOT=$HOME/go/go_win7" >> $GITHUB_ENV
+          go-version: '1.27.3'
       - name: Setup Android NDK
         if: matrix.os == 'android'
         uses: nttld/setup-ndk@v1

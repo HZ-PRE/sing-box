@@ -1,37 +1,64 @@
 package httpclient
 
 import (
+	"context"
+	"crypto/tls"
+	"github.com/sagernet/sing-box/option"
+	"io"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 )
 
-func TestHTTP2FallbackAuthorityIsolation(t *testing.T) {
-	transport := &http2FallbackTransport{fallbackAuthority: make(map[string]struct{})}
-
-	transport.markH2Fallback("a.example:443")
-	if !transport.isH2Fallback("a.example:443") {
-		t.Fatal("a.example:443 should be marked")
-	}
-	if transport.isH2Fallback("b.example:443") {
-		t.Fatal("b.example:443 must remain unmarked after marking a.example")
-	}
-
-	transport.markH2Fallback("b.example:443")
-	if !transport.isH2Fallback("b.example:443") {
-		t.Fatal("b.example:443 should be marked after explicit mark")
-	}
-	if !transport.isH2Fallback("a.example:443") {
-		t.Fatal("a.example:443 mark must survive marking another authority")
-	}
+// Intentionally not a *tls.Conn: proxy TLS implementations wrap this interface.
+type wrappedTLSConn struct {
+	net.Conn
+	state tls.ConnectionState
 }
 
-func TestHTTP2FallbackEmptyAuthorityNoOp(t *testing.T) {
-	transport := &http2FallbackTransport{fallbackAuthority: make(map[string]struct{})}
-
-	transport.markH2Fallback("")
-	if len(transport.fallbackAuthority) != 0 {
-		t.Fatalf("empty authority must not be stored, got %d entries", len(transport.fallbackAuthority))
-	}
-	if transport.isH2Fallback("") {
-		t.Fatal("isH2Fallback must be false for empty authority")
+func (c *wrappedTLSConn) ConnectionState() tls.ConnectionState { return c.state }
+func TestCustomTLSALPNSelectsProtocolWithoutRedial(t *testing.T) {
+	for _, h2 := range []bool{false, true} {
+		t.Run(map[bool]string{false: "h1", true: "h2"}[h2], func(t *testing.T) {
+			server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "ok") }))
+			server.EnableHTTP2 = h2
+			server.StartTLS()
+			defer server.Close()
+			transport, err := newHTTP2FallbackTransport(nil, nil, option.HTTP2Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer transport.Close()
+			var dials atomic.Int32
+			transport.transport.DialTLSContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+				dials.Add(1)
+				dialer := tls.Dialer{Config: &tls.Config{InsecureSkipVerify: true, NextProtos: []string{"h2", "http/1.1"}}}
+				conn, err := dialer.DialContext(ctx, network, address)
+				if err != nil {
+					return nil, err
+				}
+				return &wrappedTLSConn{Conn: conn, state: conn.(*tls.Conn).ConnectionState()}, nil
+			}
+			client := &http.Client{Transport: transport}
+			for range 2 {
+				response, err := client.Get(server.URL)
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, err = io.ReadAll(response.Body)
+				response.Body.Close()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if (response.ProtoMajor == 2) != h2 {
+					t.Fatalf("negotiated %s", response.Proto)
+				}
+			}
+			if dials.Load() != 1 {
+				t.Fatalf("expected one reused negotiated connection, got %d", dials.Load())
+			}
+		})
 	}
 }

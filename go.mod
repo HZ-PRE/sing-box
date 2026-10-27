@@ -1,6 +1,6 @@
 module github.com/sagernet/sing-box
 
-go 1.25.6
+go 1.27
 
 require (
 	github.com/anthropics/anthropic-sdk-go v1.26.0
@@ -31,7 +31,7 @@ require (
 	github.com/sagernet/bbolt v0.0.0-20231014093535-ea5cb2fe9f0a
 	github.com/sagernet/cors v1.2.1
 	github.com/sagernet/fswatch v0.1.1
-	github.com/sagernet/gomobile v0.1.12
+	github.com/sagernet/gomobile v0.1.13
 	github.com/sagernet/quic-go v0.59.0-sing-box-mod.4
 	github.com/sagernet/sing v0.8.11-0.20260514110501-905ad103a4df
 	github.com/sagernet/sing-mux v0.3.4
