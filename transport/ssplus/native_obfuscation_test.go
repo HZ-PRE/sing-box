@@ -21,6 +21,7 @@ func TestNativeMaskPaddingAndMTU(t *testing.T) {
 					masked := 0
 					plain := bytes.Repeat([]byte{0x5a}, size)
 					for i := 0; i < 256; i++ {
+						tx.policy = nativeTestConfig(t, method).paddingState(nativeTestConfig(t, method).newPaddingAllowance())
 						p, err := tx.seal(make([]byte, 0, nativeMTU), plain)
 						if err != nil {
 							t.Fatal(err)

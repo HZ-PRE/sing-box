@@ -57,12 +57,16 @@ func tlsRecord(kind byte, version uint16, payload []byte) []byte {
 }
 
 func readTLSRecord(r io.Reader) ([]byte, error) {
+	return readTLSRecordLimit(r, maxTLSRecord)
+}
+
+func readTLSRecordLimit(r io.Reader, limit int) ([]byte, error) {
 	var header [5]byte
 	if _, err := io.ReadFull(r, header[:]); err != nil {
 		return nil, err
 	}
 	size := int(binary.BigEndian.Uint16(header[3:]))
-	if size == 0 || size > maxTLSRecord {
+	if size == 0 || size > limit {
 		return nil, errTicket
 	}
 	data := make([]byte, 5+size)
@@ -83,7 +87,7 @@ func handshakeRecord(kind byte, version uint16, body []byte) []byte {
 
 func fixedHex(s string) []byte { b, _ := hex.DecodeString(s); return b }
 
-func makeClientHello(key, sessionID []byte, host string) ([]byte, error) {
+func makeClientHello(key, sessionID []byte, host string, budget ...*paddingAllowance) ([]byte, error) {
 	random, err := ticketRandom(key, sessionID)
 	if err != nil {
 		return nil, err
@@ -102,11 +106,20 @@ func makeClientHello(key, sessionID []byte, host string) ([]byte, error) {
 		ext = append(ext, sni...)
 	}
 	ext = append(ext, 0, 0x17, 0, 0)
-	ticket := make([]byte, 192)
+	ticketSize := 192
+	if len(budget) > 0 {
+		p := paddingState{allowance: budget[0]}
+		ticketSize, err = p.next(0, 127)
+		if err != nil {
+			return nil, err
+		}
+	}
+	ticket := make([]byte, ticketSize)
 	if _, err := rand.Read(ticket); err != nil {
 		return nil, err
 	}
-	ext = append(ext, 0, 0x23, 0, 192)
+	ext = append(ext, 0, 0x23)
+	ext = binary.BigEndian.AppendUint16(ext, uint16(ticketSize))
 	ext = append(ext, ticket...)
 	ext = append(ext, fixedHex("000d0016001406010603050105030401040303010303020102030005000501000000000012000075500000000b00020100000a0006000400170018")...)
 	body = binary.BigEndian.AppendUint16(body, uint16(len(ext)))
@@ -127,10 +140,20 @@ func parseHello(record []byte, kind byte) (random, sessionID []byte, err error) 
 	return record[11:43], record[44:76], nil
 }
 
-func makeFinished(key, sessionID, transcript []byte) ([]byte, error) {
+func makeFinished(key, sessionID, transcript []byte, budget ...*paddingAllowance) ([]byte, error) {
 	ccs := []byte{0x14, 3, 3, 0, 1, 1}
-	data := make([]byte, 32)
-	if _, err := rand.Read(data[:22]); err != nil {
+	size := 32
+	if len(budget) > 0 && budget[0].remaining.Load() >= 8 {
+		var choice [1]byte
+		if _, err := rand.Read(choice[:]); err != nil {
+			return nil, err
+		}
+		if choice[0]&1 != 0 && budget[0].take(8) == 8 {
+			size = 40
+		}
+	}
+	data := make([]byte, size)
+	if _, err := rand.Read(data[:size-10]); err != nil {
 		return nil, err
 	}
 	flight := append(ccs, tlsRecord(0x16, 0x0303, data)...)
@@ -157,12 +180,12 @@ func readFinished(conn net.Conn, key, sessionID, transcript, ccs []byte) error {
 	return nil
 }
 
-func clientTicketHandshake(conn net.Conn, key []byte, host string) (net.Conn, error) {
+func clientTicketHandshake(conn net.Conn, key []byte, host string, budget ...*paddingAllowance) (net.Conn, error) {
 	sessionID := make([]byte, 32)
 	if _, err := rand.Read(sessionID); err != nil {
 		return nil, err
 	}
-	hello, err := makeClientHello(key, sessionID, host)
+	hello, err := makeClientHello(key, sessionID, host, budget...)
 	if err != nil {
 		return nil, err
 	}
@@ -196,7 +219,7 @@ func clientTicketHandshake(conn net.Conn, key []byte, host string) (net.Conn, er
 	if err := readFinished(conn, key, sessionID, transcript, next); err != nil {
 		return nil, err
 	}
-	finished, err := makeFinished(key, sessionID, nil)
+	finished, err := makeFinished(key, sessionID, nil, budget...)
 	if err != nil {
 		return nil, err
 	}
@@ -206,8 +229,8 @@ func clientTicketHandshake(conn net.Conn, key []byte, host string) (net.Conn, er
 	return &ticketConn{Conn: conn}, nil
 }
 
-func (s *Server) serverTicketHandshake(conn net.Conn) (net.Conn, error) {
-	hello, err := readTLSRecord(conn)
+func (s *Server) serverTicketHandshake(conn net.Conn, budget ...*paddingAllowance) (net.Conn, error) {
+	hello, err := readTLSRecordLimit(conn, 4091)
 	if err != nil {
 		return nil, err
 	}
@@ -229,7 +252,7 @@ func (s *Server) serverTicketHandshake(conn net.Conn) (net.Conn, error) {
 	body = append(body, sessionID...)
 	body = append(body, fixedHex("c02f000005ff01000100")...)
 	serverHello := handshakeRecord(2, 0x0303, body)
-	finished, err := makeFinished(s.config.ivKey, sessionID, serverHello)
+	finished, err := makeFinished(s.config.ivKey, sessionID, serverHello, budget...)
 	if err != nil {
 		return nil, err
 	}

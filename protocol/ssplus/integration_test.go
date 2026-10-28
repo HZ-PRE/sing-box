@@ -313,3 +313,24 @@ func dualPort(t testing.TB) int {
 	t.Fatal("no available TCP/UDP port")
 	return 0
 }
+
+func TestPaddingPolicyOptions(t *testing.T) {
+	key := base64.StdEncoding.EncodeToString(make([]byte, 32))
+	for _, mode := range []string{"", "initial", "light", "off", "invalid"} {
+		for _, budget := range []int{-1, 0, 1, 1024, 65536, 65537} {
+			valid := mode != "invalid" && budget >= 0 && budget <= 65536
+			opts := option.SSPlusOutboundOptions{Padding: mode, PaddingBudget: budget, IVKey: key, Key: key, UserID: 1, ServerOptions: option.ServerOptions{Server: "127.0.0.1", ServerPort: 12345}}
+			_, err := NewOutbound(context.Background(), nil, log.NewNOPFactory().Logger(), "padding", opts)
+			if (err == nil) != valid {
+				t.Fatal("outbound padding validation", mode, budget, err)
+			}
+			in, err := NewInbound(context.Background(), &echoRouter{}, log.NewNOPFactory().Logger(), "padding", option.SSPlusInboundOptions{Padding: mode, PaddingBudget: budget, IVKey: key, Users: []option.SSPlusUser{{UserID: 1, Key: key}}})
+			if (err == nil) != valid {
+				t.Fatal("inbound padding validation", mode, budget, err)
+			}
+			if err == nil {
+				in.Close()
+			}
+		}
+	}
+}

@@ -22,6 +22,7 @@ const ssrMaxPayload = 8100
 var errSSRFrame = errors.New("ssplus: invalid auth_sha1_v4 frame")
 
 type ssrConn struct {
+	padding paddingState
 	net.Conn
 	key, iv               []byte
 	readAuth, writeAuth   bool
@@ -30,8 +31,12 @@ type ssrConn struct {
 	readErr, writeErr     error
 }
 
-func newSSRConn(conn net.Conn, key, iv []byte, client bool) *ssrConn {
-	return &ssrConn{Conn: conn, key: key, iv: iv, readAuth: !client, writeAuth: client}
+func newSSRConn(conn net.Conn, key, iv []byte, client bool, policy ...paddingState) *ssrConn {
+	c := &ssrConn{Conn: conn, key: key, iv: iv, readAuth: !client, writeAuth: client}
+	if len(policy) > 0 {
+		c.padding = policy[0]
+	}
+	return c
 }
 
 func authCRC(length []byte, key []byte) uint32 {
@@ -58,9 +63,19 @@ func encodeSSR(payload, key, iv []byte, auth bool, now time.Time) ([]byte, error
 	if len(payload) > 1200 {
 		padding = 0
 	}
+	return encodeSSRPadding(payload, key, iv, auth, now, padding)
+}
+
+func encodeSSRPadding(payload, key, iv []byte, auth bool, now time.Time, padding int) ([]byte, error) {
+	if padding < 0 || padding > 127 || len(payload) > ssrMaxPayload {
+		return nil, errSSRFrame
+	}
 	prefix, suffix, authLen := 4, 4, 0
 	if auth {
 		prefix, suffix, authLen = 6, 10, 12
+	}
+	if prefix+1+padding+authLen+len(payload)+suffix >= 8192 {
+		return nil, errSSRFrame
 	}
 	frame := make([]byte, prefix+1+padding+authLen+len(payload)+suffix)
 	binary.BigEndian.PutUint16(frame, uint16(len(frame)))
@@ -174,7 +189,11 @@ func (c *ssrConn) Write(p []byte) (int, error) {
 	total := 0
 	for len(p) > 0 {
 		size := min(len(p), ssrMaxPayload)
-		frame, err := encodeSSR(p[:size], c.key, c.iv, c.writeAuth, time.Now())
+		padding, err := c.padding.next(size, 127)
+		var frame []byte
+		if err == nil {
+			frame, err = encodeSSRPadding(p[:size], c.key, c.iv, c.writeAuth, time.Now(), padding)
+		}
 		if err == nil {
 			err = writeFull(c.Conn, frame)
 		}

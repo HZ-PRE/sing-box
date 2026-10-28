@@ -3,7 +3,6 @@ package ssplus
 import (
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/rand"
 	"encoding/binary"
 	"errors"
 	"math"
@@ -82,17 +81,16 @@ func (r *nativeReplay) commit(seq uint64) {
 }
 
 type nativeCipher struct {
-	id         [16]byte
-	aead       cipher.AEAD
-	header     cipher.Block
-	padding    int
-	random     [64]byte
-	randomLeft int
-	nonce      [12]byte
-	mask       [16]byte
-	aad        [nativeHeader]byte
-	seq        uint64
-	replay     nativeReplay
+	id      [16]byte
+	aead    cipher.AEAD
+	header  cipher.Block
+	policy  paddingState
+	padding int
+	nonce   [12]byte
+	mask    [16]byte
+	aad     [nativeHeader]byte
+	seq     uint64
+	replay  nativeReplay
 }
 
 // SetNativePadding configures outgoing extra padding before the config is used.
@@ -108,6 +106,7 @@ func (c *Config) SetNativePadding(limit int) error {
 func newNativeCipher(config *Config, seed []byte, direction string) nativeCipher {
 	var c nativeCipher
 	c.padding = config.nativePadding
+	c.policy = config.paddingState(config.newPaddingAllowance())
 	label := "native-udp/v3/" + direction
 	// Distinct destination connection IDs for each direction, stable for O(1) lookup.
 	copy(c.id[:], deriveKey(seed[16:], seed[:16], label+"/cid"))
@@ -121,7 +120,7 @@ func (c *nativeCipher) seal(dst, plain []byte) ([]byte, error) {
 }
 
 // limit caps control replies at the triggering packet's size, including padding.
-// Padding is zero before AEAD encryption; its length comes from buffered CSPRNG.
+// Padding is zero before AEAD encryption; its length is bounded by the shared connection budget.
 func (c *nativeCipher) sealLimit(dst, plain []byte, limit int) ([]byte, error) {
 	base := nativeHeader + nativeEnvelope + len(plain) + c.aead.Overhead()
 	limit = min(limit, nativeMaxMTU)
@@ -129,15 +128,12 @@ func (c *nativeCipher) sealLimit(dst, plain []byte, limit int) ([]byte, error) {
 		return nil, errNativePacket
 	}
 	padding := 0
-	if available := min(c.padding, limit-base); available > 0 {
-		if c.randomLeft == 0 {
-			if _, err := rand.Read(c.random[:]); err != nil {
-				return nil, err
-			}
-			c.randomLeft = len(c.random)
+	if c.padding > 0 && !c.policy.bulk && (c.policy.records < 8 || c.policy.light) {
+		var err error
+		padding, err = c.nextPadding(plain, min(c.padding, limit-base))
+		if err != nil {
+			return nil, err
 		}
-		c.randomLeft--
-		padding = int(c.random[c.randomLeft]) % (available + 1)
 	}
 	c.seq++
 	if cap(dst) < base+padding {
@@ -161,6 +157,26 @@ func (c *nativeCipher) sealLimit(dst, plain []byte, limit int) ([]byte, error) {
 	}
 	return packet, nil
 }
+
+// Keep the optional-padding policy off the steady-state bulk packet path.
+func (c *nativeCipher) nextPadding(plain []byte, limit int) (int, error) {
+	payloadSize := len(plain)
+	control := plain[0] >= nativeProbe && plain[0] <= nativeReady
+	if control {
+		payloadSize = 0
+	}
+	if plain[0] == nativeData && len(plain) >= 14 {
+		payloadSize = int(binary.BigEndian.Uint32(plain[9:13]))
+	}
+	records := c.policy.records
+	padding, err := c.policy.next(payloadSize, limit)
+	// Path-validation shares bytes but preserves the initial application count.
+	if control {
+		c.policy.records = records
+	}
+	return padding, err
+}
+
 func (c *nativeCipher) open(dst, packet []byte) ([]byte, uint64, error) {
 	if len(packet) < nativeHeader+nativeEnvelope+17 || len(packet) > nativeMaxMTU || packet[0]&0xe0 != 0x40 || string(packet[nativeCIDOffset:nativePNOffset]) != string(c.id[:]) {
 		return nil, 0, errNativePacket

@@ -8,6 +8,8 @@ type SSPlusUser struct {
 }
 
 type SSPlusInboundOptions struct {
+	Padding       string `json:"padding,omitempty"`
+	PaddingBudget int    `json:"padding_budget,omitempty"`
 	ListenOptions
 	UDPPadding *int         `json:"udp_padding,omitempty"`
 	Method     string       `json:"method,omitempty"`
@@ -19,6 +21,8 @@ type SSPlusInboundOptions struct {
 }
 
 type SSPlusOutboundOptions struct {
+	Padding       string `json:"padding,omitempty"`
+	PaddingBudget int    `json:"padding_budget,omitempty"`
 	DialerOptions
 	ServerOptions
 	UDPOverTCP *UDPOverTCPOptions `json:"udp_over_tcp,omitempty"`

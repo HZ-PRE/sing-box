@@ -46,6 +46,9 @@ func NewOutbound(ctx context.Context, router adapter.Router, logger log.ContextL
 	if err != nil {
 		return nil, err
 	}
+	if err = config.SetPadding(options.Padding, options.PaddingBudget); err != nil {
+		return nil, err
+	}
 	if options.UDPPadding != nil {
 		if err = config.SetNativePadding(*options.UDPPadding); err != nil {
 			return nil, err

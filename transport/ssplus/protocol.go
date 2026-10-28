@@ -44,6 +44,8 @@ type credential struct {
 }
 
 type Config struct {
+	paddingMode   string
+	paddingBudget int
 	nativePadding int
 	method        byte
 	plugin        byte
@@ -58,7 +60,7 @@ func NewConfig(method, plugin, ivKey string) (*Config, error) {
 }
 
 func NewConfigWithObfs(method, plugin, ivKey, obfs, host string) (*Config, error) {
-	c := &Config{nativePadding: nativePaddingMax}
+	c := &Config{nativePadding: nativePaddingMax, paddingMode: "initial", paddingBudget: 1024}
 	switch obfs {
 	case "", "plain":
 		if host != "" {
@@ -188,11 +190,12 @@ func NewClient(config *Config, user User) (*Client, error) {
 // DialConn sends the destination immediately, including for server-first TCP protocols.
 // The caller owns conn and must close it on error and impose a handshake deadline.
 func (c *Client) DialConn(conn net.Conn, destination M.Socksaddr) (net.Conn, error) {
+	allowance := c.config.newPaddingAllowance()
 	buffered := &handshakeBuffer{Conn: conn, active: true}
 	conn = buffered
 	if c.config.obfs {
 		var err error
-		conn, err = clientTicketHandshake(conn, c.config.ivKey, c.config.obfsHost)
+		conn, err = clientTicketHandshake(conn, c.config.ivKey, c.config.obfsHost, allowance)
 		if err != nil {
 			return nil, err
 		}
@@ -208,13 +211,13 @@ func (c *Client) DialConn(conn net.Conn, destination M.Socksaddr) (net.Conn, err
 	if err = writeFull(conn, iv); err != nil {
 		return nil, err
 	}
-	stream := &streamConn{Conn: conn, config: c.config, key: c.user.key, iv: iv}
+	stream := &streamConn{Conn: conn, config: c.config, key: c.user.key, iv: iv, padding: allowance}
 	stream.writer = shadowaead.NewWriter(fullWriter{conn}, c.config.payloadCipher(c.user.key, iv, "request"), shadowaead.MaxPacketSize)
 	var result net.Conn = stream
 	if c.config.plugin == 1 {
-		result = newSSRConn(stream, c.user.key, iv, true)
+		result = newSSRConn(stream, c.user.key, iv, true, c.config.paddingState(allowance))
 	} else if c.config.plugin == 2 {
-		result = newAESMD5Conn(stream, c.user.key, iv, true)
+		result = newAESMD5Conn(stream, c.user.key, iv, true, c.config.paddingState(allowance))
 	}
 	if err = writeFull(result, address.Bytes()); err != nil {
 		return nil, err
@@ -228,6 +231,8 @@ func (c *Client) DialConn(conn net.Conn, destination M.Socksaddr) (net.Conn, err
 }
 
 type Server struct {
+	pending    chan struct{}
+	dummy      credential
 	config     *Config
 	users      map[uint32]*credential
 	usersMutex sync.RWMutex
@@ -244,6 +249,11 @@ func NewServer(config *Config, users []User) (*Server, error) {
 // NewManagedServer permits an empty user list, which denies all connections until AddUser.
 func NewManagedServer(config *Config, users []User) (*Server, error) {
 	s := &Server{config: config, users: make(map[uint32]*credential)}
+	s.pending = make(chan struct{}, maxPendingHandshakes)
+	s.dummy.key = make([]byte, 32)
+	if _, err := rand.Read(s.dummy.key); err != nil {
+		return nil, err
+	}
 	for _, user := range users {
 		if err := s.AddUser(user); err != nil {
 			return nil, err
@@ -274,10 +284,29 @@ func (s *Server) RemoveUser(id uint32) {
 
 // Accept authenticates the user and destination before recording the IV or routing traffic.
 func (s *Server) Accept(conn net.Conn) (net.Conn, M.Socksaddr, User, error) {
-	fail := func(err error) (net.Conn, M.Socksaddr, User, error) { return nil, M.Socksaddr{}, User{}, err }
+	fail := func(err error) (net.Conn, M.Socksaddr, User, error) {
+		return nil, M.Socksaddr{}, User{}, fmt.Errorf("%w: %v", ErrAuthentication, err)
+	}
+	select {
+	case s.pending <- struct{}{}:
+	default:
+		_ = conn.Close()
+		return fail(errHandshakeLimit)
+	}
+	defer func() { <-s.pending }()
+	guard := newHandshakeGuard(conn, maxHandshakeDuration)
+	admitted := false
+	defer func() {
+		guard.finish()
+		if !admitted {
+			_ = guard.Close()
+		}
+	}()
+	conn = guard
+	allowance := s.config.newPaddingAllowance()
 	if s.config.obfs {
 		var err error
-		conn, err = s.serverTicketHandshake(conn)
+		conn, err = s.serverTicketHandshake(conn, allowance)
 		if err != nil {
 			return fail(err)
 		}
@@ -294,19 +323,19 @@ func (s *Server) Accept(conn net.Conn) (net.Conn, M.Socksaddr, User, error) {
 	u, ok := s.users[id]
 	s.usersMutex.RUnlock()
 	if !ok {
-		return fail(ErrAuthentication)
+		u = &s.dummy // Perform the same bounded payload authentication for unknown IDs.
 	}
-	stream := &streamConn{Conn: conn, config: s.config, key: u.key, iv: iv}
+	stream := &streamConn{Conn: conn, config: s.config, key: u.key, iv: iv, padding: allowance}
 	stream.reader = shadowaead.NewReader(conn, s.config.payloadCipher(u.key, iv, "request"), shadowaead.MaxPacketSize)
 	var result net.Conn = stream
 	if s.config.plugin == 1 {
-		result = newSSRConn(stream, u.key, iv, false)
+		result = newSSRConn(stream, u.key, iv, false, s.config.paddingState(allowance))
 	} else if s.config.plugin == 2 {
-		result = newAESMD5Conn(stream, u.key, iv, false)
+		result = newAESMD5Conn(stream, u.key, iv, false, s.config.paddingState(allowance))
 	}
 	destination, err := M.SocksaddrSerializer.ReadAddrPort(result)
 	if err != nil {
-		return fail(ErrAuthentication)
+		return fail(err)
 	}
 	// Recheck freshness after potentially slow reads. A header cannot outlive the replay cache.
 	if _, err = s.config.parseIV(iv, time.Now()); err != nil {
@@ -315,9 +344,13 @@ func (s *Server) Accept(conn net.Conn) (net.Conn, M.Socksaddr, User, error) {
 	// Do not admit a handshake if its credential was removed or replaced during reads.
 	s.usersMutex.RLock()
 	defer s.usersMutex.RUnlock()
-	if s.users[id] != u || !s.remember(iv, time.Now()) {
+	if !ok || s.users[id] != u || !s.remember(iv, time.Now()) {
 		return fail(ErrAuthentication)
 	}
+	if !guard.finish() {
+		return fail(errHandshakeLimit)
+	}
+	admitted = true
 	return result, destination, User{ID: u.ID, Name: u.Name, Level: u.Level}, nil
 }
 
@@ -326,6 +359,7 @@ func (s *Server) remember(iv []byte, now time.Time) bool {
 }
 
 type streamConn struct {
+	padding *paddingAllowance
 	net.Conn
 	config                *Config
 	key, iv               []byte

@@ -36,7 +36,13 @@ func encodeAESAuth(payload, key, iv []byte, now time.Time) ([]byte, error) {
 	if _, err := rand.Read(random[:]); err != nil {
 		return nil, err
 	}
-	padding := int(random[0])
+	return encodeAESAuthPadding(payload, key, iv, now, int(random[0]))
+}
+
+func encodeAESAuthPadding(payload, key, iv []byte, now time.Time, padding int) ([]byte, error) {
+	if padding < 0 || padding > 255 {
+		return nil, errAESFrame
+	}
 	frame := make([]byte, 35+padding+len(payload))
 	if len(frame) >= 8192 {
 		return nil, errAESFrame
@@ -134,7 +140,14 @@ func (c *aesDataCodec) encode(payload, key []byte, sequence uint32) ([]byte, err
 	if _, err := rand.Read(random[:]); err != nil {
 		return nil, err
 	}
-	padding := int(random[0]&31) + 1
+	return c.encodePadding(payload, key, sequence, int(random[0]&31))
+}
+
+func (c *aesDataCodec) encodePadding(payload, key []byte, sequence uint32, extra int) ([]byte, error) {
+	if sequence == 0 || len(payload) > ssrMaxPayload || extra < 0 || extra > 127 || 9+extra+len(payload) >= 8192 {
+		return nil, errAESFrame
+	}
+	padding := extra + 1
 	frame := c.frame(8 + padding + len(payload))
 	binary.LittleEndian.PutUint16(frame, uint16(len(frame)))
 	mac := hmac.New(md5.New, c.frameKey(key, sequence))
@@ -199,6 +212,7 @@ func (c *aesDataCodec) read(r io.Reader, key []byte, sequence uint32) ([]byte, e
 }
 
 type aesMD5Conn struct {
+	padding paddingState
 	net.Conn
 	key, iv                     []byte
 	readAuth, writeAuth         bool
@@ -209,8 +223,12 @@ type aesMD5Conn struct {
 	decoder, encoder            aesDataCodec
 }
 
-func newAESMD5Conn(conn net.Conn, key, iv []byte, client bool) net.Conn {
-	return &aesMD5Conn{Conn: conn, key: key, iv: iv, readAuth: !client, writeAuth: client, readSequence: 1, writeSequence: 1}
+func newAESMD5Conn(conn net.Conn, key, iv []byte, client bool, policy ...paddingState) net.Conn {
+	c := &aesMD5Conn{Conn: conn, key: key, iv: iv, readAuth: !client, writeAuth: client, readSequence: 1, writeSequence: 1}
+	if len(policy) > 0 {
+		c.padding = policy[0]
+	}
+	return c
 }
 
 func (c *aesMD5Conn) Read(p []byte) (int, error) {
@@ -248,14 +266,20 @@ func (c *aesMD5Conn) Write(p []byte) (int, error) {
 	total := 0
 	for len(p) > 0 {
 		size := min(len(p), ssrMaxPayload)
-		var frame []byte
-		var err error
 		if c.writeAuth {
 			size = min(size, 1200)
-			frame, err = encodeAESAuth(p[:size], c.key, c.iv, time.Now())
+		}
+		padding, err := c.padding.next(size, 127)
+		if err != nil {
+			c.writeErr = err
+			return total, err
+		}
+		var frame []byte
+		if c.writeAuth {
+			frame, err = encodeAESAuthPadding(p[:size], c.key, c.iv, time.Now(), padding)
 			c.writeAuth = false
 		} else {
-			frame, err = c.encoder.encode(p[:size], c.key, c.writeSequence)
+			frame, err = c.encoder.encodePadding(p[:size], c.key, c.writeSequence, padding)
 			c.writeSequence++
 		}
 		if err == nil {

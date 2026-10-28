@@ -60,6 +60,7 @@ func newNativeConn(config *Config, control net.Conn, seed []byte, client bool, b
 		tx, rx = rx, tx
 	}
 	c.tx = newNativeCipher(config, seed, tx)
+	c.tx.policy.allowance = sharedPadding(control, config)
 	c.rx = newNativeCipher(config, seed, rx)
 	c.assembly.budget = budget
 	c.addressBuffer = B.With(c.plainBuffer[14 : 14+259])
