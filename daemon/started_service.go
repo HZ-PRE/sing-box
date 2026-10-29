@@ -8,7 +8,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"unsafe"
 
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/common/dialer"
@@ -746,7 +745,7 @@ func (s *StartedService) TriggerDebugCrash(ctx context.Context, request *DebugCr
 	switch request.Type {
 	case DebugCrashRequest_GO:
 		time.AfterFunc(200*time.Millisecond, func() {
-			*(*int)(unsafe.Pointer(uintptr(0))) = 0
+			panic("debug crash requested")
 		})
 	case DebugCrashRequest_NATIVE:
 		err := s.handler.TriggerNativeCrash()

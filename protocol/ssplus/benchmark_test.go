@@ -28,7 +28,7 @@ func BenchmarkUDPPolicy(b *testing.B) {
 				logger := log.NewNOPFactory().Logger()
 				router := &echoRouter{routed: make(chan adapter.InboundContext, 8)}
 				in, err := NewInbound(context.Background(), router, logger, "bench", option.SSPlusInboundOptions{
-					IVKey: key, Method: "chacha20-ietf-poly1305", Protocol: "auth_aes128_md5", Obfs: "tls1.2_ticket_auth",
+					IVKey: key, Method: "chacha20-ietf-poly1305",
 					Users: []option.SSPlusUser{{UserID: 1, Key: key}}, ListenOptions: option.ListenOptions{ListenPort: uint16(port)},
 				})
 				if err != nil {
@@ -49,7 +49,7 @@ func BenchmarkUDPPolicy(b *testing.B) {
 					udp = "true"
 				}
 				var opts option.Outbound
-				err = opts.UnmarshalJSONContext(ctx, []byte(fmt.Sprintf(`{"type":"ssplus","server":"127.0.0.1","server_port":%d,"iv_key":%q,"key":%q,"user_id":1,"method":"chacha20-ietf-poly1305","protocol":"auth_aes128_md5","obfs":"tls1.2_ticket_auth","udp_over_tcp":%s}`, port, key, key, udp)))
+				err = opts.UnmarshalJSONContext(ctx, []byte(fmt.Sprintf(`{"type":"ssplus","server":"127.0.0.1","server_port":%d,"iv_key":%q,"key":%q,"user_id":1,"method":"chacha20-ietf-poly1305","udp_over_tcp":%s}`, port, key, key, udp)))
 				if err != nil {
 					b.Fatal(err)
 				}

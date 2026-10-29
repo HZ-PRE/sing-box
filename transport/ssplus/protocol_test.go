@@ -4,444 +4,305 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"hash/adler32"
 	"io"
 	"net"
-	"os"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/flynn/noise"
 	M "github.com/sagernet/sing/common/metadata"
-	"github.com/sagernet/sing/common/uot"
 )
 
 func testKey(b byte) string { return base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{b}, 32)) }
-
-func testConfig(t *testing.T, method, plugin string) *Config {
+func configFor(t testing.TB, method string) *Config {
 	t.Helper()
-	c, err := NewConfig(method, plugin, testKey(1))
+	c, err := NewConfig(method, testKey(1))
 	if err != nil {
 		t.Fatal(err)
 	}
 	return c
 }
 
-func testPeers(t *testing.T, method, plugin string, id uint32) (*Client, *Server) {
-	t.Helper()
-	c := testConfig(t, method, plugin)
-	users := []User{{ID: 1, Name: "alice", Key: testKey(2)}, {ID: 2, Name: "bob", Key: testKey(3)}}
-	server, err := NewServer(c, users)
-	if err != nil {
-		t.Fatal(err)
-	}
-	client, err := NewClient(c, users[id-1])
-	if err != nil {
-		t.Fatal(err)
-	}
-	return client, server
-}
-
 type fragmentedConn struct{ net.Conn }
 
 func (c fragmentedConn) Read(p []byte) (int, error)  { return c.Conn.Read(p[:min(len(p), 13)]) }
 func (c fragmentedConn) Write(p []byte) (int, error) { return c.Conn.Write(p[:min(len(p), 17)]) }
-
-func TestRoundTrip(t *testing.T) {
-	for _, method := range []string{"aes-256-gcm", "chacha20-ietf-poly1305"} {
-		for _, plugin := range []string{"origin", "auth_sha1_v4"} {
-			for _, id := range []uint32{1, 2} {
-				t.Run(fmt.Sprintf("%s/%s/%d", method, plugin, id), func(t *testing.T) {
-					client, server := testPeers(t, method, plugin, id)
-					left, right := net.Pipe()
-					defer left.Close()
-					defer right.Close()
-					left.SetDeadline(time.Now().Add(10 * time.Second))
-					right.SetDeadline(time.Now().Add(10 * time.Second))
-					destination := M.ParseSocksaddr("example.com:443")
-					result := make(chan error, 1)
-					go func() {
-						conn, dest, user, err := server.Accept(fragmentedConn{right})
-						if err == nil && (dest != destination || user.ID != id || user.Key != "") {
-							err = errors.New("incorrect destination/user or leaked key")
-						}
-						if err == nil {
-							_, err = io.Copy(conn, conn)
-						}
-						result <- err
-					}()
-					conn, err := client.DialConn(fragmentedConn{left}, destination)
-					if err != nil {
-						t.Fatal(err)
-					}
-					payload := bytes.Repeat([]byte("ssplus multi-frame TCP\x00"), 4096)
-					written := make(chan error, 1)
-					go func() { written <- writeFull(conn, payload) }()
-					reply := make([]byte, len(payload))
-					if _, err = io.ReadFull(conn, reply); err != nil {
-						t.Fatal(err)
-					}
-					if !bytes.Equal(reply, payload) {
-						t.Fatal("payload mismatch")
-					}
-					if err = <-written; err != nil {
-						t.Fatal(err)
-					}
-					conn.Close()
-					if err = <-result; err != nil {
-						t.Fatal(err)
-					}
-				})
-			}
-		}
+func peerPair(t testing.TB, c *Client, s *Server) (net.Conn, net.Conn) {
+	t.Helper()
+	a, b := net.Pipe()
+	t.Cleanup(func() { a.Close(); b.Close() })
+	a.SetDeadline(time.Now().Add(5 * time.Second))
+	b.SetDeadline(time.Now().Add(5 * time.Second))
+	type result struct {
+		conn net.Conn
+		err  error
 	}
-}
-
-func TestServerFirst(t *testing.T) {
-	client, server := testPeers(t, "", "", 1)
-	left, right := net.Pipe()
-	defer left.Close()
-	defer right.Close()
-	left.SetDeadline(time.Now().Add(5 * time.Second))
-	right.SetDeadline(time.Now().Add(5 * time.Second))
-	done := make(chan error, 1)
+	done := make(chan result, 1)
 	go func() {
-		conn, _, _, err := server.Accept(right)
-		if err == nil {
-			err = writeFull(conn, []byte("220 ready\r\n"))
+		conn, dest, user, err := s.Accept(fragmentedConn{b})
+		if err == nil && (dest.String() != "example.com:443" || user.ID != 1 || user.Key != "" || user.PreviousKey != "") {
+			err = errors.New("identity or destination mismatch")
 		}
-		done <- err
+		done <- result{conn, err}
 	}()
-	conn, err := client.DialConn(left, M.ParseSocksaddr("127.0.0.1:25"))
+	client, err := c.DialConn(fragmentedConn{a}, M.ParseSocksaddr("example.com:443"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := make([]byte, 11)
-	if _, err = io.ReadFull(conn, got); err != nil {
-		t.Fatal(err)
+	r := <-done
+	if r.err != nil {
+		t.Fatal(r.err)
 	}
-	if string(got) != "220 ready\r\n" {
-		t.Fatalf("unexpected greeting %q", got)
-	}
-	if err = <-done; err != nil {
-		t.Fatal(err)
+	return client, r.conn
+}
+func TestV2RoundTrip(t *testing.T) {
+	for _, method := range []string{"aes-256-gcm", "chacha20-ietf-poly1305"} {
+		for _, mode := range []string{"initial", "light", "off"} {
+			t.Run(method+"/"+mode, func(t *testing.T) {
+				cfg := configFor(t, method)
+				_ = cfg.SetPadding(mode, 1024)
+				c, _ := NewClient(cfg, User{ID: 1, Key: testKey(2)})
+				s, _ := NewServer(cfg, []User{{ID: 1, Key: testKey(2)}})
+				client, server := peerPair(t, c, s)
+				done := make(chan error, 1)
+				go func() {
+					_, err := server.Write([]byte("ready"))
+					if err == nil {
+						_, err = io.Copy(server, server)
+					}
+					done <- err
+				}()
+				greeting := make([]byte, 5)
+				if _, err := io.ReadFull(client, greeting); err != nil || string(greeting) != "ready" {
+					t.Fatal(err)
+				}
+				for _, size := range []int{1, 64, 1200, 1201, 16382, 65536} {
+					p := bytes.Repeat([]byte{byte(size)}, size)
+					written := make(chan error, 1)
+					go func() { _, err := client.Write(p); written <- err }()
+					reply := make([]byte, size)
+					if _, err := io.ReadFull(client, reply); err != nil || !bytes.Equal(p, reply) {
+						t.Fatal("payload mismatch", err)
+					}
+					if err := <-written; err != nil {
+						t.Fatal(err)
+					}
+				}
+				client.Close()
+				<-done
+			})
+		}
 	}
 }
+func firstFlight(t testing.TB, cfg *Config, user User) ([]byte, *noise.HandshakeState) {
+	t.Helper()
+	u, err := parseUser(user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	iv, err := cfg.makeIV(u.ID, u.KeyID, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	hs, err := cfg.handshake(u.key, iv, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	message, _, _, err := hs.WriteMessage(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err = writeNoise(&out, iv, message); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { clear(hs.LocalEphemeral().Private) })
+	return out.Bytes(), hs
+}
 
-// memoryConn permits capturing and mutating actual encrypted wire requests.
 type memoryConn struct {
 	input  *bytes.Reader
 	output bytes.Buffer
 }
 
-func (c *memoryConn) Read(p []byte) (int, error)     { return c.input.Read(p) }
-func (c *memoryConn) Write(p []byte) (int, error)    { return c.output.Write(p) }
-func (*memoryConn) Close() error                     { return nil }
-func (*memoryConn) LocalAddr() net.Addr              { return &net.TCPAddr{} }
-func (*memoryConn) RemoteAddr() net.Addr             { return &net.TCPAddr{} }
-func (*memoryConn) SetDeadline(time.Time) error      { return nil }
-func (*memoryConn) SetReadDeadline(time.Time) error  { return nil }
-func (*memoryConn) SetWriteDeadline(time.Time) error { return nil }
-
-func captureRequest(t *testing.T, client *Client) []byte {
-	t.Helper()
-	wire := &memoryConn{}
-	if _, err := client.DialConn(wire, M.ParseSocksaddr("[::1]:443")); err != nil {
-		t.Fatal(err)
-	}
-	return wire.output.Bytes()
-}
-
-func TestAuthenticationAndReplay(t *testing.T) {
-	client, server := testPeers(t, "", "", 1)
-	request := captureRequest(t, client)
-	accept := func(data []byte) error {
-		_, _, _, err := server.Accept(&memoryConn{input: bytes.NewReader(data)})
-		return err
-	}
-	for _, index := range []int{0, 15, 16, IVSize - 1, IVSize, len(request) - 1} {
-		bad := bytes.Clone(request)
-		bad[index] ^= 1
-		if err := accept(bad); err == nil {
-			t.Fatalf("accepted modified byte %d", index)
+func (c *memoryConn) Read(p []byte) (int, error)       { return c.input.Read(p) }
+func (c *memoryConn) Write(p []byte) (int, error)      { return c.output.Write(p) }
+func (c *memoryConn) Close() error                     { return nil }
+func (c *memoryConn) LocalAddr() net.Addr              { return &net.TCPAddr{} }
+func (c *memoryConn) RemoteAddr() net.Addr             { return &net.TCPAddr{} }
+func (c *memoryConn) SetDeadline(time.Time) error      { return nil }
+func (c *memoryConn) SetReadDeadline(time.Time) error  { return nil }
+func (c *memoryConn) SetWriteDeadline(time.Time) error { return nil }
+func TestV2SilentFailuresAndBounds(t *testing.T) {
+	cfg := configFor(t, "")
+	s, _ := NewServer(cfg, []User{{ID: 1, Key: testKey(2)}})
+	for _, user := range []User{{ID: 1, Key: testKey(9)}, {ID: 99, Key: testKey(2)}, {ID: 1, KeyID: 77, Key: testKey(2)}} {
+		first, _ := firstFlight(t, cfg, user)
+		conn := &memoryConn{input: bytes.NewReader(first)}
+		if accepted, _, _, err := s.Accept(conn); accepted != nil || !errors.Is(err, ErrAuthentication) || conn.output.Len() != 0 {
+			t.Fatal("credential probe answered", err)
 		}
 	}
-	for _, length := range []int{0, 15, IVSize - 1, IVSize, len(request) - 1} {
-		if err := accept(request[:length]); err == nil {
-			t.Fatalf("accepted truncated length %d", length)
+	first, _ := firstFlight(t, cfg, User{ID: 1, Key: testKey(2)})
+	for _, n := range []int{0, 15, 47, 48, 49, len(first) - 1} {
+		conn := &memoryConn{input: bytes.NewReader(first[:n])}
+		if _, _, _, err := s.Accept(conn); err == nil || conn.output.Len() != 0 {
+			t.Fatal("truncation accepted")
 		}
 	}
-	if len(server.replay.entries) != 0 {
-		t.Fatal("unauthenticated data populated replay cache")
+	bad := bytes.Clone(first)
+	binary.BigEndian.PutUint16(bad[IVSize:], 65535)
+	conn := &memoryConn{input: bytes.NewReader(bad)}
+	if _, _, _, err := s.Accept(conn); err == nil || conn.output.Len() != 0 {
+		t.Fatal("oversize hello")
 	}
-	if err := accept(request); err != nil {
-		t.Fatal(err)
+	if len(s.pending) != 0 {
+		t.Fatal("pending slot leaked")
 	}
-	if err := accept(request); !errors.Is(err, ErrAuthentication) {
-		t.Fatalf("replay accepted: %v", err)
-	}
-	for _, user := range []User{{ID: 1, Key: testKey(9)}, {ID: 99, Key: testKey(2)}} {
-		badClient, _ := NewClient(client.config, user)
-		if err := accept(captureRequest(t, badClient)); err == nil {
-			t.Fatal("accepted wrong key or unknown user")
-		}
-	}
-	for _, fields := range [][3]string{{"", "origin", testKey(1)}, {"chacha20-ietf-poly1305", "", testKey(1)}, {"", "", testKey(9)}} {
-		config, _ := NewConfig(fields[0], fields[1], fields[2])
-		badClient, _ := NewClient(config, User{ID: 1, Key: testKey(2)})
-		if err := accept(captureRequest(t, badClient)); err == nil {
-			t.Fatal("accepted mismatched configuration")
-		}
+	// Old protocol version, even correctly node-authenticated, cannot downgrade.
+	iv, _ := cfg.makeIV(1, 1, time.Now())
+	a := cfg.identityCipher(iv[:16])
+	plain, _ := a.Open(nil, make([]byte, 12), iv[16:], iv[:16])
+	plain[0] = 1
+	a.Seal(iv[16:16], make([]byte, 12), plain, iv[:16])
+	if _, _, err := cfg.parseIV(iv, time.Now()); err == nil {
+		t.Fatal("v1 accepted")
 	}
 }
-
-func TestIVFreshnessAndUniqueness(t *testing.T) {
-	config := testConfig(t, "", "")
-	now := time.Now()
-	seen := make(map[string]bool)
-	for i := 0; i < 1000; i++ {
-		iv, err := config.makeIV(42, now)
-		if err != nil {
+func TestV2ReplayRequiresFreshConfirmation(t *testing.T) {
+	cfg := configFor(t, "")
+	first, hs := firstFlight(t, cfg, User{ID: 1, Key: testKey(2)})
+	s, _ := NewServer(cfg, []User{{ID: 1, Key: testKey(2)}})
+	captured := &memoryConn{input: bytes.NewReader(first)}
+	if conn, _, _, err := s.Accept(captured); err == nil || conn != nil {
+		t.Fatal("first flight admitted without confirmation")
+	}
+	response, err := readNoise(bytes.NewReader(captured.output.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, tx, rx, err := hs.ReadMessage(nil, response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outbound := &memoryConn{}
+	stream := newStream(outbound, tx, rx, cfg, cfg.newPaddingAllowance())
+	var addr bytes.Buffer
+	_ = M.SocksaddrSerializer.WriteAddrPort(&addr, M.ParseSocksaddr("example.com:443"))
+	_, _ = stream.Write(addr.Bytes())
+	replay := append(bytes.Clone(first), outbound.output.Bytes()...)
+	// A restarted server has an empty replay cache but a new ephemeral secret.
+	fresh, _ := NewServer(cfg, []User{{ID: 1, Key: testKey(2)}})
+	if conn, _, _, err := fresh.Accept(&memoryConn{input: bytes.NewReader(replay)}); err == nil || conn != nil {
+		t.Fatal("captured transport confirmed a fresh handshake")
+	}
+	duplicate := &memoryConn{input: bytes.NewReader(first)}
+	if _, _, _, err := s.Accept(duplicate); err == nil || duplicate.output.Len() != 0 {
+		t.Fatal("cached first flight replay answered")
+	}
+}
+func TestV2Rotation(t *testing.T) {
+	cfg := configFor(t, "")
+	current := User{ID: 1, Key: testKey(3), PreviousKey: testKey(2), PreviousValidUntil: time.Now().Add(time.Minute).Unix()}
+	s, err := NewServer(cfg, []User{current})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{testKey(2), testKey(3)} {
+		c, _ := NewClient(cfg, User{ID: 1, Key: key})
+		a, b := peerPair(t, c, s)
+		a.Close()
+		b.Close()
+	}
+	current.PreviousValidUntil = time.Now().Unix()
+	if err = s.UpdateUser(current); err != nil {
+		t.Fatal(err)
+	}
+	first, _ := firstFlight(t, cfg, User{ID: 1, Key: testKey(2)})
+	conn := &memoryConn{input: bytes.NewReader(first)}
+	if _, _, _, err = s.Accept(conn); err == nil || conn.output.Len() != 0 {
+		t.Fatal("expired key admitted")
+	}
+	c, _ := NewClient(cfg, User{ID: 1, Key: testKey(3)})
+	a, b := peerPair(t, c, s)
+	a.Close()
+	b.Close()
+	s.RemoveUser(1)
+	first, _ = firstFlight(t, cfg, User{ID: 1, Key: testKey(3)})
+	if _, _, _, err = s.Accept(&memoryConn{input: bytes.NewReader(first)}); err == nil {
+		t.Fatal("revoked user admitted")
+	}
+}
+func TestV2CredentialValidation(t *testing.T) {
+	for _, u := range []User{{ID: 0, Key: testKey(2)}, {ID: 1, Key: "password"}, {ID: 1, Key: testKey(2), PreviousKey: testKey(3)}, {ID: 1, Key: testKey(2), PreviousKey: testKey(2), PreviousValidUntil: 1}, {ID: 1, KeyID: 1, Key: testKey(2), PreviousKeyID: 1, PreviousKey: testKey(3), PreviousValidUntil: 1}} {
+		if ValidateUser(u) == nil {
+			t.Fatal("invalid key ring", u.ID)
+		}
+	}
+	seen := map[string]bool{}
+	for i := 0; i < 100; i++ {
+		key, id, err := GenerateKey()
+		if err != nil || id == 0 || seen[key] {
+			t.Fatal("key generation", err)
+		}
+		seen[key] = true
+		if err = ValidateUser(User{ID: 1, Key: key, KeyID: id}); err != nil {
 			t.Fatal(err)
 		}
-		if seen[string(iv)] {
-			t.Fatal("reused IV")
-		}
-		seen[string(iv)] = true
-		if id, err := config.parseIV(iv, now); err != nil || id != 42 {
-			t.Fatalf("IV roundtrip %d: %v", id, err)
-		}
-	}
-	for _, shift := range []time.Duration{-3 * time.Minute, 3 * time.Minute} {
-		iv, _ := config.makeIV(42, now.Add(shift))
-		if _, err := config.parseIV(iv, now); !errors.Is(err, ErrAuthentication) {
-			t.Fatal("accepted stale or future IV")
-		}
 	}
 }
-
-func TestConcurrentReplay(t *testing.T) {
-	client, server := testPeers(t, "", "", 1)
-	request := captureRequest(t, client)
-	results := make(chan error, 16)
-	var workers sync.WaitGroup
-	for i := 0; i < cap(results); i++ {
-		workers.Add(1)
+func TestV2HandshakeLimits(t *testing.T) {
+	cfg := configFor(t, "")
+	s, _ := NewServer(cfg, []User{{ID: 1, Key: testKey(2)}})
+	for i := 0; i < maxPendingHandshakes; i++ {
+		s.pending <- struct{}{}
+	}
+	if _, _, _, err := s.Accept(&memoryConn{input: bytes.NewReader(nil)}); err == nil {
+		t.Fatal("admission limit")
+	}
+	for i := 0; i < maxPendingHandshakes; i++ {
+		<-s.pending
+	}
+	m := &memoryConn{input: bytes.NewReader(make([]byte, maxHandshakeBytes+1))}
+	g := newHandshakeGuard(m, time.Second)
+	_, err := io.Copy(io.Discard, g)
+	g.finish()
+	if !errors.Is(err, errHandshakeLimit) || m.input.Len() != 1 {
+		t.Fatal("read cap", err)
+	}
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	g = newHandshakeGuard(b, 10*time.Millisecond)
+	if _, err = g.Read(make([]byte, 1)); err == nil || g.finish() {
+		t.Fatal("deadline not enforced")
+	}
+}
+func TestV2ConcurrentRotation(t *testing.T) {
+	cfg := configFor(t, "")
+	s, _ := NewServer(cfg, []User{{ID: 1, Key: testKey(2)}})
+	var wg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
 		go func() {
-			defer workers.Done()
-			_, _, _, err := server.Accept(&memoryConn{input: bytes.NewReader(request)})
-			results <- err
+			defer wg.Done()
+			for n := 0; n < 100; n++ {
+				_ = s.UpdateUser(User{ID: 1, Key: testKey(2)})
+				s.usersMutex.RLock()
+				u := s.users[1]
+				_, _ = u.selectKey(u.KeyID, time.Now())
+				s.usersMutex.RUnlock()
+			}
 		}()
 	}
-	workers.Wait()
-	close(results)
-	accepted := 0
-	for err := range results {
-		if err == nil {
-			accepted++
-		}
-	}
-	if accepted != 1 {
-		t.Fatalf("accepted %d copies of one request", accepted)
-	}
+	wg.Wait()
 }
-
-func TestResponseBoundToRequest(t *testing.T) {
-	client, server := testPeers(t, "", "", 1)
-	first := &memoryConn{}
-	if _, err := client.DialConn(first, M.ParseSocksaddr("example.com:443")); err != nil {
-		t.Fatal(err)
-	}
-	serverWire := &memoryConn{input: bytes.NewReader(first.output.Bytes())}
-	conn, _, _, err := server.Accept(serverWire)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = writeFull(conn, []byte("response")); err != nil {
-		t.Fatal(err)
-	}
-	second := &memoryConn{input: bytes.NewReader(serverWire.output.Bytes())}
-	otherConn, err := client.DialConn(second, M.ParseSocksaddr("example.com:443"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = otherConn.Read(make([]byte, 8)); err == nil {
-		t.Fatal("accepted response from another session")
-	}
-}
-
-func TestUOT(t *testing.T) {
-	for _, version := range []uint8{1, 2} {
-		for _, connect := range []bool{false, true} {
-			t.Run(fmt.Sprintf("v%d/connect=%t", version, connect), func(t *testing.T) {
-				client, server := testPeers(t, "", "", 2)
-				left, right := net.Pipe()
-				defer left.Close()
-				defer right.Close()
-				left.SetDeadline(time.Now().Add(5 * time.Second))
-				right.SetDeadline(time.Now().Add(5 * time.Second))
-				destination := M.ParseSocksaddr("[2001:db8::1]:53")
-				payloads := [][]byte{nil, []byte("dns query"), bytes.Repeat([]byte{0x42}, 65000)}
-				done := make(chan error, 1)
-				go func() {
-					conn, dest, user, err := server.Accept(right)
-					if err != nil {
-						done <- err
-						return
-					}
-					if dest != uot.RequestDestination(version) || user.ID != 2 {
-						done <- errors.New("wrong UoT destination or user")
-						return
-					}
-					request := uot.Request{}
-					if version == 2 {
-						parsed, err := uot.ReadRequest(conn)
-						if err != nil {
-							done <- err
-							return
-						}
-						request = *parsed
-					}
-					packets := uot.NewConn(conn, request)
-					for range payloads {
-						buffer := make([]byte, 65535)
-						n, addr, err := packets.ReadFrom(buffer)
-						if err != nil {
-							done <- err
-							return
-						}
-						if M.SocksaddrFromNet(addr) != destination {
-							done <- fmt.Errorf("incorrect packet destination: %v", addr)
-							return
-						}
-						if _, err = packets.WriteTo(buffer[:n], addr); err != nil {
-							done <- err
-							return
-						}
-					}
-					done <- nil
-				}()
-				conn, err := client.DialConn(left, uot.RequestDestination(version))
-				if err != nil {
-					t.Fatal(err)
-				}
-				packets, err := (&uot.Client{Version: version}).DialEarlyConn(conn, connect, destination)
-				if err != nil {
-					t.Fatal(err)
-				}
-				for _, payload := range payloads {
-					if _, err = packets.WriteTo(payload, destination); err != nil {
-						t.Fatal(err)
-					}
-					reply := make([]byte, 65535)
-					n, addr, err := packets.ReadFrom(reply)
-					if err != nil {
-						t.Fatal(err)
-					}
-					if !bytes.Equal(reply[:n], payload) || M.SocksaddrFromNet(addr) != destination {
-						t.Fatal("UoT packet mismatch")
-					}
-				}
-				if err = <-done; err != nil {
-					t.Fatal(err)
-				}
-			})
-		}
-	}
-}
-
-func TestConfigurationValidation(t *testing.T) {
-	for _, fields := range [][3]string{{"none", "", testKey(1)}, {"aes-128-cfb", "", testKey(1)}, {"", "auth_chain_a", testKey(1)}, {"", "", "password"}} {
-		if _, err := NewConfig(fields[0], fields[1], fields[2]); err == nil {
-			t.Fatal("accepted invalid config")
-		}
-	}
-	config := testConfig(t, "", "")
-	for _, users := range [][]User{nil, {{ID: 0, Key: testKey(2)}}, {{ID: 1, Key: "bad"}}, {{ID: 1, Key: testKey(2)}, {ID: 1, Key: testKey(3)}}} {
-		if _, err := NewServer(config, users); err == nil {
-			t.Fatal("accepted invalid users")
-		}
-	}
-}
-
-func TestSSRRejectInvalidPadding(t *testing.T) {
-	key := bytes.Repeat([]byte{2}, 32)
-	for _, padding := range []byte{0, 254, 255} {
-		frame, _ := encodeSSR([]byte("test"), key, make([]byte, IVSize), false, time.Now())
-		frame[4] = padding
-		if padding == 255 {
-			binary.BigEndian.PutUint16(frame[5:7], 0xffff)
-		}
-		binary.LittleEndian.PutUint32(frame[len(frame)-4:], adler32.Checksum(frame[:len(frame)-4]))
-		if _, err := readSSR(bytes.NewReader(frame), key, make([]byte, IVSize), false, time.Now()); err == nil {
-			t.Fatal("accepted invalid padding")
-		}
-	}
-}
-
-func TestSSRReferenceFrames(t *testing.T) {
-	data, err := os.ReadFile("testdata/auth_sha1_v4_clash.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var reference struct {
-		Timestamp   int64  `json:"timestamp"`
-		Key         []byte `json:"key"`
-		IV          []byte `json:"iv"`
-		AuthFrames  []byte `json:"auth_frames"`
-		AuthPayload []byte `json:"auth_payload"`
-		DataFrame   []byte `json:"data_frame"`
-		DataPayload []byte `json:"data_payload"`
-	}
-	if err = json.Unmarshal(data, &reference); err != nil {
-		t.Fatal(err)
-	}
-	now := time.Unix(reference.Timestamp, 0)
-	reader := bytes.NewReader(reference.AuthFrames)
-	decoded, err := readSSR(reader, reference.Key, reference.IV, true, now)
-	for err == nil && reader.Len() > 0 {
-		var part []byte
-		part, err = readSSR(reader, reference.Key, reference.IV, false, now)
-		decoded = append(decoded, part...)
-	}
-	if err != nil || !bytes.Equal(decoded, reference.AuthPayload) {
-		t.Fatalf("reference auth: %v", err)
-	}
-	decoded, err = readSSR(bytes.NewReader(reference.DataFrame), reference.Key, reference.IV, false, now)
-	if err != nil || !bytes.Equal(decoded, reference.DataPayload) {
-		t.Fatalf("reference data: %v", err)
-	}
-}
-
-func TestReplayCacheBoundAndExpiry(t *testing.T) {
-	_, server := testPeers(t, "", "", 1)
-	now := time.Now()
-	for i := 0; i < maxReplayEntries; i++ {
-		var token [IVSize]byte
-		binary.BigEndian.PutUint64(token[:8], uint64(i))
-		if !server.remember(token[:], now) {
-			t.Fatal("entry rejected before capacity")
-		}
-	}
-	iv := bytes.Repeat([]byte{0xff}, IVSize)
-	if server.remember(iv, now) {
-		t.Fatal("cache full must fail closed")
-	}
-	if !server.remember(iv, now.Add(3*clockWindow)) {
-		t.Fatal("expired cache entries were not reclaimed")
-	}
-}
-
-func FuzzSSRDecode(f *testing.F) {
-	key, iv := bytes.Repeat([]byte{2}, 32), make([]byte, IVSize)
-	for _, auth := range []bool{false, true} {
-		frame, _ := encodeSSR([]byte("hello"), key, iv, auth, time.Unix(1700000000, 0))
-		f.Add(frame, auth)
-	}
-	f.Fuzz(func(t *testing.T, frame []byte, auth bool) {
-		_, _ = readSSR(bytes.NewReader(frame), key, iv, auth, time.Unix(1700000000, 0))
-	})
+func FuzzV2IdentityAndHello(f *testing.F) {
+	c, _ := NewConfig("", testKey(1))
+	iv, _ := c.makeIV(1, 1, time.Now())
+	f.Add(iv)
+	f.Add([]byte{0, 1})
+	f.Fuzz(func(t *testing.T, p []byte) { c.parseIV(p, time.Now()); readNoise(bytes.NewReader(p)) })
 }

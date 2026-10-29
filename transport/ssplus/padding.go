@@ -114,5 +114,3 @@ func sharedPadding(conn net.Conn, config *Config) *paddingAllowance {
 }
 
 func (c *streamConn) outgoingPadding() *paddingAllowance { return c.padding }
-func (c *ssrConn) outgoingPadding() *paddingAllowance    { return c.padding.allowance }
-func (c *aesMD5Conn) outgoingPadding() *paddingAllowance { return c.padding.allowance }

@@ -1,4 +1,4 @@
-// Package ssplus implements the SS+ v1 transport. See docs/manual/proxy-protocol/ssplus.md.
+// Package ssplus implements SSPlus v2: Noise NNpsk0 with X25519.
 package ssplus
 
 import (
@@ -7,17 +7,15 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"net"
-	"strings"
 	"sync"
 	"time"
 
-	shadowaead "github.com/sagernet/sing-box/transport/ssplus/internal/aead"
+	"github.com/flynn/noise"
 	M "github.com/sagernet/sing/common/metadata"
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/hkdf"
@@ -27,54 +25,23 @@ const (
 	IVSize           = 48
 	clockWindow      = 2 * time.Minute
 	maxReplayEntries = 65536
+	maxNoiseMessage  = 512
 )
 
 var ErrAuthentication = errors.New("ssplus: authentication failed")
 
-type User struct {
-	ID    uint32
-	Name  string
-	Key   string
-	Level uint32
-}
-
-type credential struct {
-	User
-	key []byte
-}
-
 type Config struct {
+	tlsShape      bool
 	paddingMode   string
 	paddingBudget int
 	nativePadding int
 	method        byte
-	plugin        byte
 	ivKey         []byte
-	obfs          bool
-	obfsHost      string
+	suite         noise.CipherSuite
 }
 
-// NewConfig accepts only authenticated ciphers and explicit, shared plugin settings.
-func NewConfig(method, plugin, ivKey string) (*Config, error) {
-	return NewConfigWithObfs(method, plugin, ivKey, "plain", "")
-}
-
-func NewConfigWithObfs(method, plugin, ivKey, obfs, host string) (*Config, error) {
+func NewConfig(method, ivKey string) (*Config, error) {
 	c := &Config{nativePadding: nativePaddingMax, paddingMode: "initial", paddingBudget: 1024}
-	switch obfs {
-	case "", "plain":
-		if host != "" {
-			return nil, fmt.Errorf("ssplus: obfs_param requires tls1.2_ticket_auth")
-		}
-	case "tls1.2_ticket_auth":
-		c.obfs = true
-		if len(host) > 253 || strings.ContainsAny(host, "\r\n\x00 ,/:") {
-			return nil, fmt.Errorf("ssplus: invalid obfs host")
-		}
-		c.obfsHost = host
-	default:
-		return nil, fmt.Errorf("ssplus: unsupported obfs %q", obfs)
-	}
 	switch method {
 	case "", "aes-256-gcm":
 		c.method = 1
@@ -83,95 +50,113 @@ func NewConfigWithObfs(method, plugin, ivKey, obfs, host string) (*Config, error
 	default:
 		return nil, fmt.Errorf("ssplus: unsupported method %q", method)
 	}
-	switch plugin {
-	case "", "auth_sha1_v4":
-		c.plugin = 1
-	case "origin":
-		c.plugin = 0
-	case "auth_aes128_md5":
-		c.plugin = 2
-	default:
-		return nil, fmt.Errorf("ssplus: unsupported SSR protocol %q", plugin)
-	}
 	var err error
 	c.ivKey, err = decodeKey(ivKey)
 	if err != nil {
 		return nil, fmt.Errorf("ssplus iv_key: %w", err)
 	}
+	c.suite = noise.NewCipherSuite(noise.DH25519, noiseAEADFunc{c.method}, noise.HashSHA256)
 	return c, nil
-}
-
-func decodeKey(value string) ([]byte, error) {
-	key, err := base64.StdEncoding.DecodeString(value)
-	if err != nil || len(key) != 32 {
-		return nil, errors.New("expected a base64-encoded 32-byte key")
-	}
-	return key, nil
-}
-
-func parseUser(user User) (credential, error) {
-	if user.ID == 0 {
-		return credential{}, errors.New("ssplus: user_id must be nonzero")
-	}
-	key, err := decodeKey(user.Key)
-	if err != nil {
-		return credential{}, fmt.Errorf("ssplus user %d key: %w", user.ID, err)
-	}
-	return credential{User: user, key: key}, nil
 }
 
 func deriveKey(key, salt []byte, label string) []byte {
 	out := make([]byte, 32)
-	// HKDF with a fixed output length cannot fail here.
-	_, _ = io.ReadFull(hkdf.New(sha256.New, key, salt, []byte("ssplus/v1/"+label)), out)
+	_, _ = io.ReadFull(hkdf.New(sha256.New, key, salt, []byte("ssplus/v2/"+label)), out)
 	return out
 }
-
 func (c *Config) identityCipher(random []byte) cipher.AEAD {
-	block, _ := aes.NewCipher(deriveKey(c.ivKey, random, "identity"))
-	aead, _ := cipher.NewGCM(block)
-	return aead
-}
-
-func (c *Config) payloadCipher(key, salt []byte, direction string) cipher.AEAD {
-	key = deriveKey(key, salt, direction)
-	if c.method == 2 {
-		aead, _ := chacha20poly1305.New(key)
-		return aead
-	}
+	key := deriveKey(c.ivKey, random, "identity")
 	block, _ := aes.NewCipher(key)
+	clear(key)
 	aead, _ := cipher.NewGCM(block)
 	return aead
 }
 
-func (c *Config) makeIV(id uint32, now time.Time) ([]byte, error) {
+// Native UDP uses independent directional secrets delivered inside the PFS stream.
+func (c *Config) payloadCipher(key, salt []byte, direction string) cipher.AEAD {
+	subkey := deriveKey(key, salt, direction)
+	defer clear(subkey)
+	if c.method == 2 {
+		a, _ := chacha20poly1305.New(subkey)
+		return a
+	}
+	block, _ := aes.NewCipher(subkey)
+	a, _ := cipher.NewGCM(block)
+	return a
+}
+func (c *Config) makeIV(id, keyID uint32, now time.Time) ([]byte, error) {
 	iv := make([]byte, IVSize)
 	if _, err := rand.Read(iv[:16]); err != nil {
 		return nil, err
 	}
-	plain := make([]byte, 16)
-	plain[0], plain[1], plain[2] = 1, c.method, c.plugin
+	var plain [16]byte
+	plain[0], plain[1] = 2, c.method
 	binary.BigEndian.PutUint32(plain[4:8], id)
-	binary.BigEndian.PutUint64(plain[8:], uint64(now.Unix()))
-	aead := c.identityCipher(iv[:16])
-	aead.Seal(iv[16:16], make([]byte, aead.NonceSize()), plain, iv[:16])
+	binary.BigEndian.PutUint32(plain[8:12], keyID)
+	if now.Unix() < 0 || now.Unix() > int64(^uint32(0)) {
+		return nil, ErrAuthentication
+	}
+	binary.BigEndian.PutUint32(plain[12:], uint32(now.Unix()))
+	a := c.identityCipher(iv[:16])
+	a.Seal(iv[16:16], make([]byte, a.NonceSize()), plain[:], iv[:16])
 	return iv, nil
 }
-
-func (c *Config) parseIV(iv []byte, now time.Time) (uint32, error) {
+func (c *Config) parseIV(iv []byte, now time.Time) (uint32, uint32, error) {
 	if len(iv) != IVSize {
-		return 0, ErrAuthentication
+		return 0, 0, ErrAuthentication
 	}
-	aead := c.identityCipher(iv[:16])
-	p, err := aead.Open(nil, make([]byte, aead.NonceSize()), iv[16:], iv[:16])
-	if err != nil || p[0] != 1 || p[1] != c.method || p[2] != c.plugin || p[3] != 0 {
-		return 0, ErrAuthentication
+	a := c.identityCipher(iv[:16])
+	p, err := a.Open(nil, make([]byte, a.NonceSize()), iv[16:], iv[:16])
+	if err != nil || len(p) != 16 || p[0] != 2 || p[1] != c.method || p[2] != 0 || p[3] != 0 {
+		return 0, 0, ErrAuthentication
 	}
-	ts := binary.BigEndian.Uint64(p[8:])
-	if ts < uint64(now.Add(-clockWindow).Unix()) || ts > uint64(now.Add(clockWindow).Unix()) {
-		return 0, ErrAuthentication
+	ts := int64(binary.BigEndian.Uint32(p[12:]))
+	id, kid := binary.BigEndian.Uint32(p[4:]), binary.BigEndian.Uint32(p[8:])
+	if id == 0 || kid == 0 || ts < now.Add(-clockWindow).Unix() || ts > now.Add(clockWindow).Unix() {
+		return 0, 0, ErrAuthentication
 	}
-	return binary.BigEndian.Uint32(p[4:8]), nil
+	return id, kid, nil
+}
+func (c *Config) handshake(key, iv []byte, client bool) (*noise.HandshakeState, error) {
+	// Bind the complete identity envelope, including version, cipher and key ID.
+	prologue := append([]byte("SSPlus/v2/Noise/"), iv...)
+	if c.tlsShape {
+		prologue = append(prologue, []byte("/tls-ticket/v1")...)
+	}
+	return noise.NewHandshakeState(noise.Config{CipherSuite: c.suite, Pattern: noise.HandshakeNN,
+		Initiator: client, PresharedKey: key, PresharedKeyPlacement: 0, Prologue: prologue})
+}
+func readNoise(r io.Reader) ([]byte, error) {
+	var h [2]byte
+	if _, err := io.ReadFull(r, h[:]); err != nil {
+		return nil, err
+	}
+	n := int(binary.BigEndian.Uint16(h[:]))
+	if n < 48 || n > maxNoiseMessage {
+		return nil, ErrAuthentication
+	}
+	p := make([]byte, n)
+	_, err := io.ReadFull(r, p)
+	return p, err
+}
+func writeNoise(w io.Writer, prefix, message []byte) error {
+	if len(message) > maxNoiseMessage {
+		return ErrAuthentication
+	}
+	packet := make([]byte, 0, len(prefix)+2+len(message))
+	packet = append(packet, prefix...)
+	packet = binary.BigEndian.AppendUint16(packet, uint16(len(message)))
+	packet = append(packet, message...)
+	return writeFull(w, packet)
+}
+func (c *Config) helloPadding(b *paddingAllowance) ([]byte, error) {
+	state := c.paddingState(b)
+	n, err := state.next(0, 127)
+	if err != nil {
+		return nil, err
+	}
+	// Encrypted payload is only padding: application data waits for fresh ECDH.
+	return make([]byte, n), nil
 }
 
 type Client struct {
@@ -184,58 +169,64 @@ func NewClient(config *Config, user User) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Client{config, u}, nil
+	return &Client{config: config, user: u}, nil
 }
 
-// DialConn sends the destination immediately, including for server-first TCP protocols.
-// The caller owns conn and must close it on error and impose a handshake deadline.
+// DialConn completes Noise and sends the encrypted destination. Caller owns conn.
 func (c *Client) DialConn(conn net.Conn, destination M.Socksaddr) (net.Conn, error) {
-	allowance := c.config.newPaddingAllowance()
-	buffered := &handshakeBuffer{Conn: conn, active: true}
-	conn = buffered
-	if c.config.obfs {
-		var err error
-		conn, err = clientTicketHandshake(conn, c.config.ivKey, c.config.obfsHost, allowance)
-		if err != nil {
-			return nil, err
-		}
+	if c.config.tlsShape {
+		conn = &tlsShapeConn{Conn: conn, client: true}
 	}
 	var address bytes.Buffer
 	if err := M.SocksaddrSerializer.WriteAddrPort(&address, destination); err != nil {
 		return nil, err
 	}
-	iv, err := c.config.makeIV(c.user.ID, time.Now())
+	iv, err := c.config.makeIV(c.user.ID, c.user.KeyID, time.Now())
 	if err != nil {
 		return nil, err
 	}
-	if err = writeFull(conn, iv); err != nil {
+	hs, err := c.config.handshake(c.user.key, iv, true)
+	if err != nil {
 		return nil, err
 	}
-	stream := &streamConn{Conn: conn, config: c.config, key: c.user.key, iv: iv, padding: allowance}
-	stream.writer = shadowaead.NewWriter(fullWriter{conn}, c.config.payloadCipher(c.user.key, iv, "request"), shadowaead.MaxPacketSize)
-	var result net.Conn = stream
-	if c.config.plugin == 1 {
-		result = newSSRConn(stream, c.user.key, iv, true, c.config.paddingState(allowance))
-	} else if c.config.plugin == 2 {
-		result = newAESMD5Conn(stream, c.user.key, iv, true, c.config.paddingState(allowance))
-	}
-	if err = writeFull(result, address.Bytes()); err != nil {
+	defer func() { clear(hs.LocalEphemeral().Private) }()
+	budget := c.config.newPaddingAllowance()
+	pad, err := c.config.helloPadding(budget)
+	if err != nil {
 		return nil, err
 	}
-	if err = buffered.flush(); err != nil {
+	first, _, _, err := hs.WriteMessage(nil, pad)
+	if err != nil {
 		return nil, err
 	}
-	buffered.active = false
-	buffered.buffer = bytes.Buffer{}
-	return result, nil
+	if err = writeNoise(conn, iv, first); err != nil {
+		return nil, err
+	}
+	second, err := readNoise(conn)
+	if err != nil {
+		return nil, err
+	}
+	hello, tx, rx, err := hs.ReadMessage(nil, second)
+	if err != nil {
+		return nil, ErrAuthentication
+	}
+	if len(hello) > 127 || tx == nil || rx == nil {
+		return nil, ErrAuthentication
+	}
+	stream := newStream(conn, tx, rx, c.config, budget)
+	// This first transport message also proves receipt of the fresh responder key.
+	if err = writeFull(stream, address.Bytes()); err != nil {
+		return nil, err
+	}
+	return stream, nil
 }
 
 type Server struct {
-	pending    chan struct{}
-	dummy      credential
 	config     *Config
 	users      map[uint32]*credential
 	usersMutex sync.RWMutex
+	pending    chan struct{}
+	dummy      [32]byte
 	replay     replayCache
 }
 
@@ -245,13 +236,9 @@ func NewServer(config *Config, users []User) (*Server, error) {
 	}
 	return NewManagedServer(config, users)
 }
-
-// NewManagedServer permits an empty user list, which denies all connections until AddUser.
 func NewManagedServer(config *Config, users []User) (*Server, error) {
-	s := &Server{config: config, users: make(map[uint32]*credential)}
-	s.pending = make(chan struct{}, maxPendingHandshakes)
-	s.dummy.key = make([]byte, 32)
-	if _, err := rand.Read(s.dummy.key); err != nil {
+	s := &Server{config: config, users: make(map[uint32]*credential), pending: make(chan struct{}, maxPendingHandshakes)}
+	if _, err := rand.Read(s.dummy[:]); err != nil {
 		return nil, err
 	}
 	for _, user := range users {
@@ -261,7 +248,6 @@ func NewManagedServer(config *Config, users []User) (*Server, error) {
 	}
 	return s, nil
 }
-
 func (s *Server) AddUser(user User) error {
 	u, err := parseUser(user)
 	if err != nil {
@@ -269,20 +255,37 @@ func (s *Server) AddUser(user User) error {
 	}
 	s.usersMutex.Lock()
 	defer s.usersMutex.Unlock()
-	if _, exists := s.users[user.ID]; exists {
-		return fmt.Errorf("ssplus: duplicate user_id %d", user.ID)
+	if _, ok := s.users[u.ID]; ok {
+		return fmt.Errorf("ssplus: duplicate user_id %d", u.ID)
 	}
-	s.users[user.ID] = &u
+	s.users[u.ID] = &u
 	return nil
 }
 
-func (s *Server) RemoveUser(id uint32) {
+// UpdateUser atomically replaces a complete, bounded key ring. In-flight
+// handshakes against the previous snapshot are rejected; established streams live on.
+func (s *Server) UpdateUser(user User) error {
+	u, err := parseUser(user)
+	if err != nil {
+		return err
+	}
 	s.usersMutex.Lock()
 	defer s.usersMutex.Unlock()
-	delete(s.users, id)
+	if s.users[u.ID] == nil {
+		return fmt.Errorf("ssplus: unknown user_id %d", u.ID)
+	}
+	s.users[u.ID] = &u
+	return nil
 }
+func (s *Server) RemoveUser(id uint32) {
+	s.usersMutex.Lock()
+	delete(s.users, id)
+	s.usersMutex.Unlock()
+}
+func (s *Server) remember(iv []byte, now time.Time) bool { return s.replay.remember(iv, now) }
 
-// Accept authenticates the user and destination before recording the IV or routing traffic.
+// Accept does not release a routable destination until the first transport
+// record confirms the fresh handshake. Captured first flights cannot dial targets.
 func (s *Server) Accept(conn net.Conn) (net.Conn, M.Socksaddr, User, error) {
 	fail := func(err error) (net.Conn, M.Socksaddr, User, error) {
 		return nil, M.Socksaddr{}, User{}, fmt.Errorf("%w: %v", ErrAuthentication, err)
@@ -303,123 +306,81 @@ func (s *Server) Accept(conn net.Conn) (net.Conn, M.Socksaddr, User, error) {
 		}
 	}()
 	conn = guard
-	allowance := s.config.newPaddingAllowance()
-	if s.config.obfs {
-		var err error
-		conn, err = s.serverTicketHandshake(conn, allowance)
-		if err != nil {
-			return fail(err)
-		}
+	if s.config.tlsShape {
+		conn = &tlsShapeConn{Conn: conn}
 	}
 	iv := make([]byte, IVSize)
 	if _, err := io.ReadFull(conn, iv); err != nil {
 		return fail(err)
 	}
-	id, err := s.config.parseIV(iv, time.Now())
+	id, kid, err := s.config.parseIV(iv, time.Now())
 	if err != nil {
 		return fail(err)
 	}
 	s.usersMutex.RLock()
-	u, ok := s.users[id]
+	u := s.users[id]
 	s.usersMutex.RUnlock()
-	if !ok {
-		u = &s.dummy // Perform the same bounded payload authentication for unknown IDs.
+	key := s.dummy[:]
+	valid := false
+	if u != nil {
+		if selected, ok := u.selectKey(kid, time.Now()); ok {
+			key = selected
+			valid = true
+		}
 	}
-	stream := &streamConn{Conn: conn, config: s.config, key: u.key, iv: iv, padding: allowance}
-	stream.reader = shadowaead.NewReader(conn, s.config.payloadCipher(u.key, iv, "request"), shadowaead.MaxPacketSize)
-	var result net.Conn = stream
-	if s.config.plugin == 1 {
-		result = newSSRConn(stream, u.key, iv, false, s.config.paddingState(allowance))
-	} else if s.config.plugin == 2 {
-		result = newAESMD5Conn(stream, u.key, iv, false, s.config.paddingState(allowance))
-	}
-	destination, err := M.SocksaddrSerializer.ReadAddrPort(result)
+	first, err := readNoise(conn)
 	if err != nil {
 		return fail(err)
 	}
-	// Recheck freshness after potentially slow reads. A header cannot outlive the replay cache.
-	if _, err = s.config.parseIV(iv, time.Now()); err != nil {
+	hs, err := s.config.handshake(key, iv, false)
+	if err != nil {
 		return fail(err)
 	}
-	// Do not admit a handshake if its credential was removed or replaced during reads.
+	defer func() { clear(hs.LocalEphemeral().Private) }()
+	hello, _, _, err := hs.ReadMessage(nil, first)
+	if err != nil || len(hello) > 127 {
+		return fail(ErrAuthentication)
+	}
+	if !valid || !s.remember(iv, time.Now()) {
+		return fail(ErrAuthentication)
+	}
+	budget := s.config.newPaddingAllowance()
+	pad, err := s.config.helloPadding(budget)
+	if err != nil {
+		return fail(err)
+	}
+	second, rx, tx, err := hs.WriteMessage(nil, pad)
+	if err != nil {
+		return fail(err)
+	}
+	if rx == nil || tx == nil {
+		return fail(ErrAuthentication)
+	}
+	if err = writeNoise(conn, nil, second); err != nil {
+		return fail(err)
+	}
+	stream := newStream(conn, tx, rx, s.config, budget)
+	destination, err := M.SocksaddrSerializer.ReadAddrPort(stream)
+	if err != nil {
+		return fail(err)
+	}
+	if _, _, err = s.config.parseIV(iv, time.Now()); err != nil {
+		return fail(err)
+	}
 	s.usersMutex.RLock()
 	defer s.usersMutex.RUnlock()
-	if !ok || s.users[id] != u || !s.remember(iv, time.Now()) {
+	if s.users[id] != u {
+		return fail(ErrAuthentication)
+	}
+	if _, ok := u.selectKey(kid, time.Now()); !ok {
 		return fail(ErrAuthentication)
 	}
 	if !guard.finish() {
 		return fail(errHandshakeLimit)
 	}
 	admitted = true
-	return result, destination, User{ID: u.ID, Name: u.Name, Level: u.Level}, nil
+	return stream, destination, User{ID: u.ID, KeyID: kid, Name: u.Name, Level: u.Level}, nil
 }
-
-func (s *Server) remember(iv []byte, now time.Time) bool {
-	return s.replay.remember(iv, now)
-}
-
-type streamConn struct {
-	padding *paddingAllowance
-	net.Conn
-	config                *Config
-	key, iv               []byte
-	reader                *shadowaead.Reader
-	writer                *shadowaead.Writer
-	readMutex, writeMutex sync.Mutex
-	readErr, writeErr     error
-}
-
-func (c *streamConn) Read(p []byte) (int, error) {
-	if len(p) == 0 {
-		return 0, nil
-	}
-	c.readMutex.Lock()
-	defer c.readMutex.Unlock()
-	if c.readErr != nil {
-		return 0, c.readErr
-	}
-	if c.reader == nil {
-		salt := make([]byte, 32)
-		if _, c.readErr = io.ReadFull(c.Conn, salt); c.readErr != nil {
-			return 0, c.readErr
-		}
-		binding := append(append([]byte(nil), c.iv...), salt...)
-		c.reader = shadowaead.NewReader(c.Conn, c.config.payloadCipher(c.key, binding, "response"), shadowaead.MaxPacketSize)
-	}
-	n, err := c.reader.Read(p)
-	if err != nil {
-		c.readErr = err
-	}
-	return n, err
-}
-
-func (c *streamConn) Write(p []byte) (int, error) {
-	if len(p) == 0 {
-		return 0, nil
-	}
-	c.writeMutex.Lock()
-	defer c.writeMutex.Unlock()
-	if c.writeErr != nil {
-		return 0, c.writeErr
-	}
-	if c.writer == nil {
-		salt := make([]byte, 32)
-		if _, c.writeErr = rand.Read(salt); c.writeErr != nil {
-			return 0, c.writeErr
-		}
-		if c.writeErr = writeFull(c.Conn, salt); c.writeErr != nil {
-			return 0, c.writeErr
-		}
-		binding := append(append([]byte(nil), c.iv...), salt...)
-		c.writer = shadowaead.NewWriter(fullWriter{c.Conn}, c.config.payloadCipher(c.key, binding, "response"), shadowaead.MaxPacketSize)
-	}
-	n, err := c.writer.Write(p)
-	if err != nil {
-		c.writeErr = err
-	}
-	return n, err
-}
-
 func writeFull(w io.Writer, p []byte) error {
 	for len(p) > 0 {
 		n, err := w.Write(p)
@@ -432,13 +393,4 @@ func writeFull(w io.Writer, p []byte) error {
 		p = p[n:]
 	}
 	return nil
-}
-
-type fullWriter struct{ io.Writer }
-
-func (w fullWriter) Write(p []byte) (int, error) {
-	if err := writeFull(w.Writer, p); err != nil {
-		return 0, err
-	}
-	return len(p), nil
 }

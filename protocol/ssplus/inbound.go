@@ -34,10 +34,11 @@ type Inbound struct {
 }
 
 func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options option.SSPlusInboundOptions) (adapter.Inbound, error) {
-	config, err := ssplus.NewConfigWithObfs(options.Method, options.Protocol, options.IVKey, options.Obfs, options.ObfsParam)
+	config, err := ssplus.NewConfig(options.Method, options.IVKey)
 	if err != nil {
 		return nil, err
 	}
+	config.EnableFixedObfuscation()
 	if err = config.SetPadding(options.Padding, options.PaddingBudget); err != nil {
 		return nil, err
 	}
@@ -48,11 +49,7 @@ func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLo
 	}
 	users := make([]ssplus.User, len(options.Users))
 	for i, user := range options.Users {
-		key, err := ssplus.ResolveKey(user.Key, user.Password)
-		if err != nil {
-			return nil, err
-		}
-		users[i] = ssplus.User{ID: user.UserID, Name: user.Name, Key: key}
+		users[i] = ssplus.User{ID: user.UserID, Name: user.Name, Key: user.Key, KeyID: user.KeyID, PreviousKey: user.PreviousKey, PreviousKeyID: user.PreviousKeyID, PreviousValidUntil: user.PreviousValidUntil}
 	}
 	server, err := ssplus.NewServer(config, users)
 	if err != nil {

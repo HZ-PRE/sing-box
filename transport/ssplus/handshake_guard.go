@@ -15,7 +15,7 @@ const (
 
 var errHandshakeLimit = errors.New("ssplus: authentication resource limit")
 
-// This wrapper is installed before ticket decoding, including its read-ahead.
+// This wrapper is installed before reading the identity envelope and Noise flights.
 // Once authentication succeeds it becomes a transparent connection wrapper.
 type handshakeGuard struct {
 	net.Conn

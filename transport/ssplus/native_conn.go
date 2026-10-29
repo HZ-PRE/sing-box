@@ -63,7 +63,8 @@ func newNativeConn(config *Config, control net.Conn, seed []byte, client bool, b
 	c.tx.policy.allowance = sharedPadding(control, config)
 	c.rx = newNativeCipher(config, seed, rx)
 	c.assembly.budget = budget
-	c.addressBuffer = B.With(c.plainBuffer[14 : 14+259])
+	// The address shares the first fragment's storage; writes hold writeMu.
+	c.addressBuffer = B.With(c.plainBuffer[14:])
 	return c
 }
 
@@ -95,12 +96,13 @@ func (c *Client) OpenNative(ctx context.Context, control, udp net.Conn) (*Native
 		return nil, err
 	}
 	var bootstrap [56]byte
+	defer clear(bootstrap[:])
 	if _, err := io.ReadFull(control, bootstrap[:]); err != nil {
 		control.Close()
 		udp.Close()
 		return nil, err
 	}
-	if string(bootstrap[:8]) != "SSPUDP03" {
+	if string(bootstrap[:8]) != "SSPUDP04" {
 		control.Close()
 		udp.Close()
 		return nil, errNativePacket
@@ -130,7 +132,7 @@ func (c *Client) OpenNative(ctx context.Context, control, udp net.Conn) (*Native
 	retry := time.NewTicker(300 * time.Millisecond)
 	defer retry.Stop()
 	// The authenticated large probe proves both directions before enabling the
-	// optional compact frame. Old peers ignore it and use the ordinary probe.
+	// optional compact frame; ordinary probes also validate the base MTU.
 	if string(bootstrap[8:16]) == "SSPMTU1!" {
 		if err := p.sendLargeControl(nativeProbe, nil, p.reply); err != nil {
 			p.Close()
@@ -292,22 +294,28 @@ func (c *NativeConn) receive(packet []byte, source string, reply func([]byte) er
 	}
 }
 
-func (c *NativeConn) ReadFrom(p []byte) (int, net.Addr, error) {
+func (c *NativeConn) readMessage() (nativeMessage, error) {
 	for {
 		c.mu.Lock()
 		deadline, changed := c.readDeadline, c.changed
 		c.mu.Unlock()
 		select {
 		case <-c.done:
-			return 0, nil, net.ErrClosed
+			return nativeMessage{}, net.ErrClosed
+		default:
+		}
+		if !deadline.IsZero() && !time.Now().Before(deadline) {
+			return nativeMessage{}, os.ErrDeadlineExceeded
+		}
+		// A queued message needs no timer or boxed net.Addr allocation.
+		select {
+		case message := <-c.queue:
+			return message, nil
 		default:
 		}
 		var timer *time.Timer
 		var timeout <-chan time.Time
 		if !deadline.IsZero() {
-			if !time.Now().Before(deadline) {
-				return 0, nil, os.ErrDeadlineExceeded
-			}
 			timer = time.NewTimer(time.Until(deadline))
 			timeout = timer.C
 		}
@@ -316,19 +324,14 @@ func (c *NativeConn) ReadFrom(p []byte) (int, net.Addr, error) {
 			if timer != nil {
 				timer.Stop()
 			}
-			n := copy(p, message.data[message.offset:])
-			c.assembly.budget.release(len(message.data))
-			if n < len(message.data)-message.offset {
-				return n, message.address, io.ErrShortBuffer
-			}
-			return n, message.address, nil
+			return message, nil
 		case <-c.done:
 			if timer != nil {
 				timer.Stop()
 			}
-			return 0, nil, net.ErrClosed
+			return nativeMessage{}, net.ErrClosed
 		case <-timeout:
-			return 0, nil, os.ErrDeadlineExceeded
+			return nativeMessage{}, os.ErrDeadlineExceeded
 		case <-changed:
 			if timer != nil {
 				timer.Stop()
@@ -336,13 +339,30 @@ func (c *NativeConn) ReadFrom(p []byte) (int, net.Addr, error) {
 		}
 	}
 }
+func (c *NativeConn) ReadFrom(p []byte) (int, net.Addr, error) {
+	message, err := c.readMessage()
+	if err != nil {
+		return 0, nil, err
+	}
+	defer c.assembly.budget.release(len(message.data))
+	n := copy(p, message.data[message.offset:])
+	if n < len(message.data)-message.offset {
+		return n, message.address, io.ErrShortBuffer
+	}
+	return n, message.address, nil
+}
 func (c *NativeConn) ReadPacket(buffer *B.Buffer) (M.Socksaddr, error) {
-	n, address, err := c.ReadFrom(buffer.FreeBytes())
+	message, err := c.readMessage()
 	if err != nil {
 		return M.Socksaddr{}, err
 	}
+	defer c.assembly.budget.release(len(message.data))
+	n := copy(buffer.FreeBytes(), message.data[message.offset:])
+	if n < len(message.data)-message.offset {
+		return M.Socksaddr{}, io.ErrShortBuffer
+	}
 	buffer.Truncate(buffer.Len() + n)
-	return M.SocksaddrFromNet(address), nil
+	return message.address, nil
 }
 func (c *NativeConn) WritePacket(buffer *B.Buffer, destination M.Socksaddr) error {
 	defer buffer.Release()
@@ -391,6 +411,7 @@ func (c *NativeConn) WriteTo(payload []byte, address net.Addr) (int, error) {
 	plain[0] = nativeData
 	binary.BigEndian.PutUint64(plain[1:], messageID)
 	binary.BigEndian.PutUint32(plain[9:], uint32(addressLen+len(payload)))
+	// Copy directly into fragments instead of first copying the whole datagram.
 	for index, offset := 0, 0; index == 0 || offset < len(payload); index++ {
 		n := 0
 		if index == 0 {
@@ -487,7 +508,8 @@ func (s *Server) NewNativeService() *NativeService {
 }
 func (s *NativeService) Accept(control net.Conn) (*NativeConn, error) {
 	var bootstrap [56]byte
-	copy(bootstrap[:8], "SSPUDP03")
+	defer clear(bootstrap[:])
+	copy(bootstrap[:8], "SSPUDP04")
 	if _, err := rand.Read(bootstrap[8:]); err != nil {
 		return nil, err
 	}

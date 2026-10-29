@@ -73,8 +73,14 @@ func TestRegisteredLoopbackTCPAndUDPPolicies(t *testing.T) {
 	router := &echoRouter{routed: make(chan adapter.InboundContext, 8)}
 	ivKey := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 32))
 	userKey := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{2}, 32))
+	for _, retired := range []string{`"tcp_obfs":"tls-ticket"`, `"udp_obfs":"quic-like"`} {
+		var retiredOptions option.Outbound
+		if err := retiredOptions.UnmarshalJSONContext(ctx, []byte(fmt.Sprintf(`{"type":"ssplus","server":"127.0.0.1","server_port":443,"iv_key":%q,"user_id":7,"key":%q,%s}`, ivKey, userKey, retired))); err == nil {
+			t.Fatal("retired SSPlus obfuscation field accepted", retired)
+		}
+	}
 	var inOptions option.Inbound
-	err := inOptions.UnmarshalJSONContext(ctx, []byte(fmt.Sprintf(`{"type":"ssplus","tag":"ssplus-in","native_udp":false,"listen":"127.0.0.1","listen_port":%d,"protocol":"auth_aes128_md5","obfs":"tls1.2_ticket_auth","iv_key":%q,"users":[{"user_id":7,"name":"alice","key":%q}]}`, dualPort(t), ivKey, userKey)))
+	err := inOptions.UnmarshalJSONContext(ctx, []byte(fmt.Sprintf(`{"type":"ssplus","tag":"ssplus-in","native_udp":false,"listen":"127.0.0.1","listen_port":%d,"iv_key":%q,"users":[{"user_id":7,"name":"alice","key":%q}]}`, dualPort(t), ivKey, userKey)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +99,7 @@ func TestRegisteredLoopbackTCPAndUDPPolicies(t *testing.T) {
 	port := in.(*Inbound).listener.TCPListener().Addr().(*net.TCPAddr).Port
 	for index, legacy := range []string{"", `,"udp_over_tcp":true`, `,"udp_over_tcp":{"enabled":true,"version":1}`, `,"udp_over_tcp":false`, `,"udp_mode":"uot","udp_over_tcp":false`} {
 		var outOptions option.Outbound
-		err = outOptions.UnmarshalJSONContext(ctx, []byte(fmt.Sprintf(`{"type":"ssplus","tag":"ssplus-out","server":"127.0.0.1","server_port":%d,"protocol":"auth_aes128_md5","obfs":"tls1.2_ticket_auth","iv_key":%q,"user_id":7,"key":%q%s}`, port, ivKey, userKey, legacy)))
+		err = outOptions.UnmarshalJSONContext(ctx, []byte(fmt.Sprintf(`{"type":"ssplus","tag":"ssplus-out","server":"127.0.0.1","server_port":%d,"iv_key":%q,"user_id":7,"key":%q%s}`, port, ivKey, userKey, legacy)))
 		if err != nil {
 			t.Fatal(err)
 		}

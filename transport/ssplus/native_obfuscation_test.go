@@ -167,7 +167,7 @@ func TestNativeControlPaddingNoAmplification(t *testing.T) {
 }
 
 func TestNativeRejectsLegacyBootstrap(t *testing.T) {
-	for _, version := range []string{"SSPUDP01", "SSPUDP02"} {
+	for _, version := range []string{"SSPUDP01", "SSPUDP02", "SSPUDP03"} {
 		t.Run(version, func(t *testing.T) {
 			a, b := net.Pipe()
 			defer b.Close()

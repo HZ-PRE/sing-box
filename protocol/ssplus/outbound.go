@@ -42,10 +42,11 @@ type Outbound struct {
 }
 
 func NewOutbound(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options option.SSPlusOutboundOptions) (adapter.Outbound, error) {
-	config, err := ssplus.NewConfigWithObfs(options.Method, options.Protocol, options.IVKey, options.Obfs, options.ObfsParam)
+	config, err := ssplus.NewConfig(options.Method, options.IVKey)
 	if err != nil {
 		return nil, err
 	}
+	config.EnableFixedObfuscation()
 	if err = config.SetPadding(options.Padding, options.PaddingBudget); err != nil {
 		return nil, err
 	}
@@ -54,11 +55,7 @@ func NewOutbound(ctx context.Context, router adapter.Router, logger log.ContextL
 			return nil, err
 		}
 	}
-	key, err := ssplus.ResolveKey(options.Key, options.Password)
-	if err != nil {
-		return nil, err
-	}
-	client, err := ssplus.NewClient(config, ssplus.User{ID: options.UserID, Key: key})
+	client, err := ssplus.NewClient(config, ssplus.User{ID: options.UserID, Key: options.Key, KeyID: options.KeyID})
 	if err != nil {
 		return nil, err
 	}

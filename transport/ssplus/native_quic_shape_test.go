@@ -11,6 +11,7 @@ func TestNativePacketNumberWrapAndReorder(t *testing.T) {
 		for _, boundary := range []uint64{1 << 32, 2 << 32, nativeMaxSequence - 4} {
 			tx, rx := nativeTestCiphers(t, method)
 			tx.seq, rx.replay.highest = boundary-3, boundary-3
+			tx.epoch, rx.epoch = (tx.seq-1)/(1<<16), (tx.seq-1)/(1<<16)
 			packets := make([][]byte, 7)
 			for i := range packets {
 				p, err := tx.seal(nil, []byte("wrap"))
@@ -41,6 +42,7 @@ func TestNativeShortHeaderProtectionLayout(t *testing.T) {
 	for _, method := range []string{"aes-256-gcm", "chacha20-ietf-poly1305"} {
 		tx, _ := nativeTestCiphers(t, method)
 		tx.seq = 0x100000001
+		tx.epoch = (tx.seq - 1) / (1 << 16)
 		packet, err := tx.seal(nil, []byte("QUIC-shaped, SS+ encrypted"))
 		if err != nil {
 			t.Fatal(err)
@@ -100,6 +102,7 @@ func TestNativeTruncatedNumberNeverReusesNonce(t *testing.T) {
 		t.Fatal(err)
 	}
 	tx.seq = 1 << 32
+	tx.epoch, rx.epoch = (tx.seq-1)/(1<<16), (tx.seq-1)/(1<<16)
 	second, err := tx.seal(nil, []byte("same payload"))
 	if err != nil {
 		t.Fatal(err)

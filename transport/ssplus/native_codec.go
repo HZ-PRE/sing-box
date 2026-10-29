@@ -10,10 +10,10 @@ import (
 	"time"
 )
 
-// Native UDP v3 has a QUIC 1-RTT short-header shape, not a QUIC transport.
-// It uses SS+ authentication/AEAD, with no QUIC Initial, TLS, ACKs, or PFS.
+// Native UDP v4 has a QUIC 1-RTT short-header shape, not a QUIC transport.
+// It uses SS+ authentication/AEAD, with no QUIC Initial, TLS or ACKs. Bootstrap secrets arrive over the PFS Noise stream.
 const (
-	NativeUDPAddress       = "sp.v1.native-udp.ssplus.arpa"
+	NativeUDPAddress       = "sp.v2.native-udp.ssplus.arpa"
 	nativeMTU              = 1200
 	nativeMaxMTU           = 1360
 	nativeCompact     byte = 6
@@ -81,16 +81,20 @@ func (r *nativeReplay) commit(seq uint64) {
 }
 
 type nativeCipher struct {
-	id      [16]byte
-	aead    cipher.AEAD
-	header  cipher.Block
-	policy  paddingState
-	padding int
-	nonce   [12]byte
-	mask    [16]byte
-	aad     [nativeHeader]byte
-	seq     uint64
-	replay  nativeReplay
+	id       [16]byte
+	aead     cipher.AEAD
+	previous cipher.AEAD
+	epoch    uint64
+	secret   [32]byte
+	method   byte
+	header   cipher.Block
+	policy   paddingState
+	padding  int
+	nonce    [12]byte
+	mask     [16]byte
+	aad      [nativeHeader]byte
+	seq      uint64
+	replay   nativeReplay
 }
 
 // SetNativePadding configures outgoing extra padding before the config is used.
@@ -107,12 +111,31 @@ func newNativeCipher(config *Config, seed []byte, direction string) nativeCipher
 	var c nativeCipher
 	c.padding = config.nativePadding
 	c.policy = config.paddingState(config.newPaddingAllowance())
-	label := "native-udp/v3/" + direction
+	label := "native-udp/v4/" + direction
 	// Distinct destination connection IDs for each direction, stable for O(1) lookup.
 	copy(c.id[:], deriveKey(seed[16:], seed[:16], label+"/cid"))
-	c.aead = config.payloadCipher(seed[16:], seed[:16], label)
+	copy(c.secret[:], deriveKey(seed[16:], seed[:16], label+"/epoch-secret"))
+	c.method = config.method
+	c.aead = config.payloadCipher(c.secret[:], nil, "native-udp/v4/epoch")
 	c.header, _ = aes.NewCipher(deriveKey(seed[16:], seed[:16], label+"/header"))
 	return c
+}
+
+// Each directional payload key covers at most 65536 packets. Retain only the
+// preceding AEAD for reordered packets, never the preceding derivation secret.
+func (c *nativeCipher) nextEpoch() ([32]byte, cipher.AEAD) {
+	var next [32]byte
+	key := deriveKey(c.secret[:], nil, "native-udp/v4/rekey")
+	copy(next[:], key)
+	clear(key)
+	a := (&Config{method: c.method}).payloadCipher(next[:], nil, "native-udp/v4/epoch")
+	return next, a
+}
+func (c *nativeCipher) commitEpoch(secret [32]byte, a cipher.AEAD) {
+	c.previous, c.aead = c.aead, a
+	clear(c.secret[:])
+	c.secret = secret
+	c.epoch++
 }
 
 func (c *nativeCipher) seal(dst, plain []byte) ([]byte, error) {
@@ -136,6 +159,14 @@ func (c *nativeCipher) sealLimit(dst, plain []byte, limit int) ([]byte, error) {
 		}
 	}
 	c.seq++
+	if (c.seq-1)/(1<<16) > c.epoch {
+		if (c.seq-1)/(1<<16) != c.epoch+1 {
+			return nil, errNativePacket
+		}
+		secret, a := c.nextEpoch()
+		c.commitEpoch(secret, a)
+		clear(secret[:])
+	}
 	if cap(dst) < base+padding {
 		dst = make([]byte, base+padding)
 	}
@@ -195,13 +226,29 @@ func (c *nativeCipher) open(dst, packet []byte) ([]byte, uint64, error) {
 		return nil, 0, errNativePacket
 	}
 	binary.BigEndian.PutUint64(c.nonce[4:], seq)
-	plain, err := c.aead.Open(dst[:0], c.nonce[:], packet[nativeHeader:], c.aad[:])
+	epoch := (seq - 1) / (1 << 16)
+	a := c.aead
+	var next [32]byte
+	switch {
+	case epoch == c.epoch:
+	case c.epoch > 0 && epoch == c.epoch-1 && c.previous != nil:
+		a = c.previous
+	case epoch == c.epoch+1:
+		next, a = c.nextEpoch()
+		defer clear(next[:])
+	default:
+		return nil, 0, errNativePacket
+	}
+	plain, err := a.Open(dst[:0], c.nonce[:], packet[nativeHeader:], c.aad[:])
 	if err != nil {
 		return nil, 0, errNativePacket
 	}
 	n := int(binary.BigEndian.Uint16(plain))
 	if n == 0 || n > len(plain)-nativeEnvelope || len(plain)-nativeEnvelope-n > nativePaddingMax {
 		return nil, 0, errNativePacket
+	}
+	if epoch == c.epoch+1 {
+		c.commitEpoch(next, a)
 	}
 	c.replay.commit(seq)
 	return plain[nativeEnvelope : nativeEnvelope+n], seq, nil
@@ -274,8 +321,12 @@ func (a *nativeAssembler) feed(plain []byte, seq uint64, now time.Time) []byte {
 		if len(a.partial) >= 8 || a.bytes+total > 256*1024 || !a.budget.take(total) {
 			return nil
 		}
+		// Most DNS/game packets fit in one fragment. They still own their
+		// budget reservation, but need no partial-message object or map entry.
 		if count == 1 {
-			return append([]byte(nil), plain[14:14+total]...)
+			data := make([]byte, total)
+			copy(data, plain[14:14+total])
+			return data
 		}
 		if a.partial == nil {
 			a.partial = make(map[uint64]*nativePartial)

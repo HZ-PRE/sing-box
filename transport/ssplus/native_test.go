@@ -20,7 +20,7 @@ import (
 
 func nativeTestConfig(t testing.TB, method string) *Config {
 	t.Helper()
-	c, err := NewConfig(method, "origin", base64.StdEncoding.EncodeToString(make([]byte, 32)))
+	c, err := NewConfig(method, base64.StdEncoding.EncodeToString(make([]byte, 32)))
 	if err != nil {
 		t.Fatal(err)
 	}
